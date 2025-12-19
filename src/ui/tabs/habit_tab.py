@@ -1,8 +1,10 @@
-from PyQt5.QtWidgets import QLabel, QPushButton, QHBoxLayout, QInputDialog
+from PyQt5.QtWidgets import QLabel, QPushButton, QHBoxLayout, QInputDialog, QVBoxLayout, QComboBox
 from PyQt5.QtCore import Qt
 from .base_tab import BaseTab
 from ..cards import HabitCard
 from ...models import Habit
+
+
 
 
 class HabitTab(BaseTab):
@@ -15,9 +17,28 @@ class HabitTab(BaseTab):
     def setup_header(self):
         header = QHBoxLayout()
         header.setContentsMargins(10, 10, 10, 0)
+
+        title_layout = QVBoxLayout()
         title = QLabel("Трекер Звичок")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
-        header.addWidget(title)
+        title_layout.addWidget(title)
+
+        # Кнопка сортування
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Сортувати за: Назвою", "Сортувати за: Серією"])
+        self.sort_combo.setFixedWidth(200)
+        self.sort_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #1e3a8a; color: white; border: 1px solid #3b82f6;
+                border-radius: 4px; padding: 4px; font-size: 12px;
+            }
+            QComboBox::drop-down { border: none; }
+        """)
+        self.sort_combo.currentIndexChanged.connect(self.update_list)
+
+        title_layout.addWidget(self.sort_combo)
+
+        header.addLayout(title_layout)
         header.addStretch()
         self.layout.insertLayout(0, header)
 
@@ -25,7 +46,7 @@ class HabitTab(BaseTab):
         footer = QHBoxLayout()
         footer.setContentsMargins(10, 10, 10, 10)
 
-        btn_add = QPushButton("+ Нова Звичка")
+        btn_add = QPushButton("➕ Нова Звичка")
         btn_add.setProperty("class", "actionBtn")
         btn_add.clicked.connect(self.add_habit)
 
@@ -36,6 +57,13 @@ class HabitTab(BaseTab):
     def update_list(self):
         self.clear_list()
         habits = self.mw.storage.get_habits(self.mw.user_id)
+
+        # Сортування
+        mode = self.sort_combo.currentText()
+        if "Серією" in mode:
+            habits.sort(key=lambda h: h.streak, reverse=True)
+        else:
+            habits.sort(key=lambda h: h.title)
 
         if not habits:
             lbl = QLabel("Немає звичок")

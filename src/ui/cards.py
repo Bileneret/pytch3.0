@@ -1,48 +1,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy, QTextBrowser)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPalette
+                             QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy)
+from PyQt5.QtCore import Qt, QTimer
 from ..models import GoalStatus
-from datetime import date
-
-
-class ResizableTextBrowser(QTextBrowser):
-    """
-    Кастомний віджет тексту, який автоматично підганяє свою висоту під контент.
-    Виглядає як звичайний QLabel, але коректно переносить текст.
-    """
-
-    def __init__(self, text, parent=None):
-        super().__init__(parent)
-        self.setText(text)
-        self.setFrameStyle(QFrame.NoFrame)
-        # Прозорий фон
-        palette = self.palette()
-        palette.setColor(QPalette.Base, Qt.transparent)
-        self.setPalette(palette)
-        # Стиль тексту
-        self.setStyleSheet("color: #cbd5e1; font-size: 14px; background-color: transparent;")
-
-        # Вимикаємо скролбари
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setReadOnly(True)
-
-        # Політика розміру
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        # Початкове налаштування висоти
-        self.document().contentsChanged.connect(self.adjust_height)
-        self.adjust_height()
-
-    def adjust_height(self):
-        """Змінює висоту віджета відповідно до висоти тексту."""
-        doc_height = self.document().size().height()
-        self.setFixedHeight(int(doc_height + 10))  # +10 для відступу
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.adjust_height()
 
 
 class QuestCard(QFrame):
@@ -51,39 +10,46 @@ class QuestCard(QFrame):
         self.goal = goal
         self.parent_tab = parent_tab
         self.storage = parent_tab.mw.storage
+
         self.init_ui()
 
     def init_ui(self):
-        self.setStyleSheet("""
-            QFrame {
+        self.setObjectName("CardFrame")
+
+        # --- ВАЖЛИВО: ОДНАКОВА ШИРИНА РАМКИ (2px) ЩОБ НЕ ЛАМАТИ LAYOUT ---
+        self.style_normal = """
+            QFrame#CardFrame {
                 background-color: #1e293b;
-                border: 2px solid #1e3a8a;
+                border: 2px solid #1e3a8a; 
                 border-radius: 8px;
             }
             QLabel { border: none; background-color: transparent; color: #e0e0e0; }
             QCheckBox { background-color: transparent; color: #e0e0e0; font-size: 13px; }
-            QProgressBar {
-                border: 1px solid #1e4976;
-                border-radius: 4px;
-                background-color: #0f172a;
-                text-align: center;
-                color: white;
-                font-size: 10px;
-                height: 12px;
+        """
+
+        self.style_highlight = """
+            QFrame#CardFrame {
+                background-color: #1e3a8a;
+                border: 2px solid #ea80fc; /* Тільки зміна кольору! */
+                border-radius: 8px;
             }
-            QProgressBar::chunk { background-color: #2563eb; border-radius: 3px; }
-        """)
+            QLabel { border: none; background-color: transparent; color: #ffffff; }
+            QCheckBox { background-color: transparent; color: #ffffff; font-size: 13px; }
+        """
+
+        self.setStyleSheet(self.style_normal)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(8)
 
-        # HEADER
+        # 1. HEADER
         header_layout = QHBoxLayout()
         status_icon = "🔵" if self.goal.status == GoalStatus.PLANNED else "✅"
+
         title_lbl = QLabel(f"{status_icon} {self.goal.title}")
         title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: white;")
+        title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: white; border: none;")
 
         delete_btn = QPushButton("✖")
         delete_btn.setFixedSize(24, 24)
@@ -97,12 +63,16 @@ class QuestCard(QFrame):
         header_layout.addWidget(delete_btn)
         layout.addLayout(header_layout)
 
-        # DESCRIPTION (Використовуємо ResizableTextBrowser)
+        # 2. DESCRIPTION (Використовуємо надійний QLabel)
         if self.goal.description:
-            desc_widget = ResizableTextBrowser(self.goal.description)
-            layout.addWidget(desc_widget)
+            desc_lbl = QLabel(self.goal.description)
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet("color: #cbd5e1; font-size: 14px; margin-bottom: 5px; border: none;")
+            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+            desc_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            layout.addWidget(desc_lbl)
 
-        # PROGRESS BAR
+        # 3. PROGRESS BAR
         self.subgoals = self.storage.get_subgoals(self.goal.id)
         total_subs = len(self.subgoals)
         completed_subs = sum(1 for s in self.subgoals if s.is_completed)
@@ -112,17 +82,29 @@ class QuestCard(QFrame):
             self.progress_bar.setRange(0, total_subs)
             self.progress_bar.setValue(completed_subs)
             self.progress_bar.setFormat(f"%p% ({completed_subs}/{total_subs})")
+            self.progress_bar.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #1e4976;
+                    border-radius: 4px;
+                    background-color: #0f172a;
+                    text-align: center;
+                    color: white;
+                    font-size: 10px;
+                    height: 12px;
+                }
+                QProgressBar::chunk { background-color: #2563eb; border-radius: 3px; }
+            """)
             layout.addWidget(self.progress_bar)
 
-        # DETAILS
+        # 4. DETAILS
         details_text = f"Пріоритет: {self.goal.priority.value}"
         if self.goal.deadline:
             details_text += f"  |  Дедлайн: {self.goal.deadline}"
         details_lbl = QLabel(details_text)
-        details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 2px;")
+        details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 2px; border: none;")
         layout.addWidget(details_lbl)
 
-        # SUBGOALS LIST (Тільки назви)
+        # 5. SUBGOALS LIST
         if self.subgoals:
             sub_container = QFrame()
             sub_container.setStyleSheet("background-color: #111827; border-radius: 6px; margin-top: 8px; border: none;")
@@ -136,6 +118,8 @@ class QuestCard(QFrame):
 
                 chk = QCheckBox(sub.title)
                 chk.setChecked(sub.is_completed)
+                chk.setStyleSheet(
+                    "QCheckBox { background: transparent; color: #e0e0e0; font-size: 13px; border: none; }")
                 chk.stateChanged.connect(lambda state, s=sub: self.toggle_subgoal(state, s))
 
                 row.addWidget(chk)
@@ -146,7 +130,7 @@ class QuestCard(QFrame):
 
         layout.addSpacing(5)
 
-        # BUTTONS
+        # 6. BUTTONS
         btn_layout = QHBoxLayout()
         btn_style = """
             QPushButton { 
@@ -184,6 +168,17 @@ class QuestCard(QFrame):
         btn_layout.addWidget(btn_complete)
         layout.addLayout(btn_layout)
 
+    # === БЕЗПЕЧНА ПІДСВІТКА ===
+    def highlight_card(self):
+        """Змінює стиль на яскравий (без зміни геометрії)."""
+        self.setStyleSheet(self.style_highlight)
+        QTimer.singleShot(1500, self.reset_style)
+
+    def reset_style(self):
+        """Повертає звичайний стиль."""
+        self.setStyleSheet(self.style_normal)
+
+    # --- Methods ---
     def toggle_subgoal(self, state, subgoal):
         subgoal.is_completed = (state == Qt.Checked)
         self.storage.save_subgoal(subgoal)

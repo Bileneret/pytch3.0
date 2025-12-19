@@ -57,6 +57,7 @@ class AppController:
 
     def show_main_window(self, user_id):
         """Відкрити головне вікно."""
+        # Передаємо ДВА аргументи, як у вашому оригінальному файлі
         self.main_window = MainWindow(user_id, self.storage)
         # Підключаємо сигнал виходу до методу logout
         self.main_window.logout_requested.connect(self.logout)
