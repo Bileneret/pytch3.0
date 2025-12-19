@@ -31,7 +31,9 @@ class SubGoal:
     title: str
     goal_id: str
     is_completed: bool = False
-    description: str = ""  # Додано опис
+    description: str = ""
+    # Важливо: дата створення для сортування
+    created_at: datetime = field(default_factory=datetime.now)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 @dataclass

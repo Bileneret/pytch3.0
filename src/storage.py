@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from datetime import datetime
 from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit, SubGoal
 
 
@@ -27,8 +28,9 @@ class StorageService:
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, streak INTEGER, last_completed_date TEXT
         )''')
 
+        # ОНОВЛЕНО: додано created_at
         c.execute('''CREATE TABLE IF NOT EXISTS subgoals (
-            id TEXT PRIMARY KEY, goal_id TEXT, title TEXT, is_completed INTEGER, description TEXT
+            id TEXT PRIMARY KEY, goal_id TEXT, title TEXT, is_completed INTEGER, description TEXT, created_at TEXT
         )''')
 
         conn.commit()
@@ -82,7 +84,6 @@ class StorageService:
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # Перевіряємо, чи існує запис, щоб зробити UPDATE замість REPLACE (зберігає rowid і порядок)
         c.execute("SELECT 1 FROM goals WHERE id = ?", (goal.id,))
         exists = c.fetchone()
 
@@ -101,7 +102,6 @@ class StorageService:
     def get_goals(self, user_id: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # Сортуємо по даті створення (спочатку нові), щоб порядок не скакав
         c.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         rows = c.fetchall()
         conn.close()
@@ -152,8 +152,12 @@ class StorageService:
     def save_subgoal(self, subgoal: SubGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        c.execute('''INSERT OR REPLACE INTO subgoals VALUES (?, ?, ?, ?, ?)''',
-                  (subgoal.id, subgoal.goal_id, subgoal.title, 1 if subgoal.is_completed else 0, subgoal.description))
+        # Зберігаємо також created_at
+        c.execute('''INSERT OR REPLACE INTO subgoals VALUES (?, ?, ?, ?, ?, ?)''',
+                  (subgoal.id, subgoal.goal_id, subgoal.title,
+                   1 if subgoal.is_completed else 0,
+                   subgoal.description,
+                   str(subgoal.created_at)))
         conn.commit()
         conn.close()
 
@@ -163,13 +167,28 @@ class StorageService:
         c.execute("SELECT * FROM subgoals WHERE goal_id = ?", (goal_id,))
         rows = c.fetchall()
         conn.close()
+
         subgoals = []
         for r in rows:
             s = SubGoal(title=r[2], goal_id=r[1])
             s.id = r[0]
             s.is_completed = bool(r[3])
             s.description = r[4] if len(r) > 4 else ""
+
+            # Відновлюємо дату створення, якщо вона є (для старих записів може не бути)
+            if len(r) > 5 and r[5]:
+                try:
+                    s.created_at = datetime.fromisoformat(r[5])
+                except:
+                    pass  # Залишаємо default, якщо формат битий
+
             subgoals.append(s)
+
+        # СОРТУВАННЯ:
+        # 1. За станом виконання (невиконані - False - йдуть першими)
+        # 2. За датою створення (щоб зберігався хронологічний порядок всередині груп)
+        subgoals.sort(key=lambda x: (x.is_completed, x.created_at))
+
         return subgoals
 
     def delete_subgoal(self, subgoal_id: str):

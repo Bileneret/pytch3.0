@@ -63,7 +63,6 @@ class ChatInputArea(QTextEdit):
 class ChatBubble(QFrame):
     def __init__(self, text, is_user=True):
         super().__init__()
-        # 4. Прибираємо всі рамки з самого фрейму
         self.setStyleSheet("background: transparent; border: none;")
 
         layout = QHBoxLayout(self)
@@ -73,7 +72,6 @@ class ChatBubble(QFrame):
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
-        # Стилізація повідомлень (БЕЗ РАМОК)
         if is_user:
             label.setStyleSheet("""
                 QLabel {
@@ -82,7 +80,7 @@ class ChatBubble(QFrame):
                     border-radius: 12px;
                     padding: 12px;
                     font-size: 14px;
-                    border: none; /* Прибираємо біле обведення */
+                    border: none;
                 }
             """)
             layout.addStretch()
@@ -95,7 +93,7 @@ class ChatBubble(QFrame):
                     border-radius: 12px;
                     padding: 12px;
                     font-size: 14px;
-                    border: none; /* Прибираємо рамку */
+                    border: none;
                 }
             """)
             layout.addWidget(label)
@@ -120,6 +118,7 @@ class AIGoalDialog(QDialog):
         self.init_ui()
 
     def init_ui(self):
+        # ОНОВЛЕНО СТИЛЬ QProgressBar (фіолетовий, як у subgoals)
         self.setStyleSheet("""
             QDialog { background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI'; }
             QScrollArea { border: none; background: transparent; }
@@ -128,14 +127,20 @@ class AIGoalDialog(QDialog):
                 border-radius: 6px; padding: 8px 16px; font-weight: bold;
             }
             QPushButton:hover { background-color: #2563eb; }
-            /* Кнопка прийняття цілі */
             QPushButton#AcceptBtn {
                 background-color: #059669; border-color: #10b981; margin-top: 5px;
             }
             QPushButton#AcceptBtn:hover { background-color: #047857; }
 
-            QProgressBar { border: none; background-color: #0f172a; height: 3px; }
-            QProgressBar::chunk { background-color: #3b82f6; }
+            QProgressBar {
+                border: 2px solid #1e3a8a; 
+                border-radius: 5px; 
+                text-align: center; 
+                background-color: #0f172a;
+            }
+            QProgressBar::chunk { 
+                background-color: #7c3aed; /* Фіолетовий колір */
+            }
         """)
 
         main_layout = QVBoxLayout(self)
@@ -152,10 +157,11 @@ class AIGoalDialog(QDialog):
         self.scroll_area.setWidget(self.chat_container)
         main_layout.addWidget(self.scroll_area)
 
-        # Прогрес бар
+        # Прогрес бар (фіксована висота 10px, як у subgoals)
         self.loading_bar = QProgressBar()
         self.loading_bar.setRange(0, 0)
         self.loading_bar.setVisible(False)
+        self.loading_bar.setFixedHeight(10)
         main_layout.addWidget(self.loading_bar)
 
         # Ввід
@@ -218,25 +224,21 @@ class AIGoalDialog(QDialog):
 
     def on_response(self, text, json_data):
         self.loading_bar.setVisible(False)
-        # 2. Розблоковуємо ввід, щоб можна було правити ціль далі
         self.text_input.setReadOnly(False)
         self.btn_send.setEnabled(True)
         self.text_input.setFocus()
 
         self.add_message(text, is_user=False)
 
-        # 1. Якщо прийшов JSON (ціль готова) - показуємо кнопку
         if json_data:
             btn_accept = QPushButton(f"✅ Додати ціль: {json_data.get('title', 'Ціль')}")
             btn_accept.setObjectName("AcceptBtn")
             btn_accept.setCursor(Qt.PointingHandCursor)
-            # Прив'язуємо дані до кнопки через лямбду
             btn_accept.clicked.connect(lambda: self.create_goal_from_json(json_data))
             self.add_system_widget(btn_accept)
 
     def create_goal_from_json(self, data):
         try:
-            # Парсинг складності
             diff_str = data.get("difficulty", "MEDIUM").upper()
             priority = GoalPriority.MEDIUM
             for p in GoalPriority:
@@ -244,13 +246,11 @@ class AIGoalDialog(QDialog):
                     priority = p
                     break
 
-            # Дедлайн
             deadline = None
             if "deadline_days" in data:
                 days = int(data.get("deadline_days", 7))
                 deadline = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
-            # Створення
             new_goal = LearningGoal(
                 title=data.get("title", "Нова ціль"),
                 description=data.get("description", ""),
@@ -260,7 +260,6 @@ class AIGoalDialog(QDialog):
             )
             self.storage.save_goal(new_goal)
 
-            # Підцілі
             subgoals = data.get("subgoals", [])
             for sub in subgoals:
                 new_sub = SubGoal(
