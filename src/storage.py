@@ -1,6 +1,7 @@
 import sqlite3
 import os
-from .models import User, LearningGoal, GoalStatus, GoalPriority
+from datetime import date
+from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit
 
 
 class StorageService:
@@ -13,15 +14,12 @@ class StorageService:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
-        # Таблиця користувачів (додано password_hash)
+        # Таблиця користувачів
         c.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT,
                 password_hash TEXT,
-                level INTEGER,
-                current_xp INTEGER,
-                xp_to_next_level INTEGER,
                 total_completed_goals INTEGER,
                 avatar_path TEXT,
                 created_at TEXT
@@ -42,9 +40,21 @@ class StorageService:
             )
         ''')
 
+        # Таблиця звичок (НОВА)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS habits (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                title TEXT,
+                streak INTEGER,
+                last_completed_date TEXT
+            )
+        ''')
+
         conn.commit()
         conn.close()
 
+    # --- USER ---
     def get_user_by_username(self, username: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -54,7 +64,6 @@ class StorageService:
         return self._map_row_to_user(row)
 
     def get_user_by_id(self, user_id: str):
-        """Отримання користувача по ID (важливо для MainWindow)."""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
@@ -67,11 +76,8 @@ class StorageService:
             user = User(username=row[1])
             user.id = row[0]
             user.password_hash = row[2]
-            user.level = row[3]
-            user.current_xp = row[4]
-            user.xp_to_next_level = row[5]
-            user.total_completed_goals = row[6]
-            user.avatar_path = row[7]
+            user.total_completed_goals = row[3]
+            user.avatar_path = row[4]
             return user
         return None
 
@@ -79,24 +85,15 @@ class StorageService:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('''
-            INSERT INTO users (id, username, password_hash, level, current_xp, xp_to_next_level, total_completed_goals, avatar_path, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (user.id, user.username, user.password_hash, user.level, user.current_xp,
-              user.xp_to_next_level, user.total_completed_goals, user.avatar_path, str(user.created_at)))
+            INSERT INTO users (id, username, password_hash, total_completed_goals, avatar_path, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user.id, user.username, user.password_hash,
+              user.total_completed_goals, user.avatar_path, str(user.created_at)))
         conn.commit()
         conn.close()
         return user
 
-    def update_user(self, user: User):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('''
-            UPDATE users SET level=?, current_xp=?, xp_to_next_level=?, total_completed_goals=?
-            WHERE id=?
-        ''', (user.level, user.current_xp, user.xp_to_next_level, user.total_completed_goals, user.id))
-        conn.commit()
-        conn.close()
-
+    # --- GOALS ---
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -127,3 +124,30 @@ class StorageService:
                 g.status = GoalStatus[r[6]]
             goals.append(g)
         return goals
+
+    # --- HABITS (НОВЕ) ---
+    def save_habit(self, habit: Habit):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO habits (id, user_id, title, streak, last_completed_date)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (habit.id, habit.user_id, habit.title, habit.streak, habit.last_completed_date))
+        conn.commit()
+        conn.close()
+
+    def get_habits(self, user_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT * FROM habits WHERE user_id = ?", (user_id,))
+        rows = c.fetchall()
+        conn.close()
+
+        habits = []
+        for r in rows:
+            h = Habit(title=r[2], user_id=r[1])
+            h.id = r[0]
+            h.streak = r[3]
+            h.last_completed_date = r[4]
+            habits.append(h)
+        return habits

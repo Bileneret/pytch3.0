@@ -1,9 +1,8 @@
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, date
+from typing import Optional
 from enum import Enum
-
 
 class GoalPriority(Enum):
     LOW = "Низький"
@@ -11,29 +10,21 @@ class GoalPriority(Enum):
     HIGH = "Високий"
     CRITICAL = "Критичний"
 
-
 class GoalStatus(Enum):
     PLANNED = "Заплановано"
     IN_PROGRESS = "В процесі"
     COMPLETED = "Виконано"
     MISSED = "Прострочено"
 
-
 @dataclass
 class User:
-    """Модель користувача (Учня)."""
+    """Модель користувача."""
     username: str
-    password_hash: str = ""  # Нове поле для пароля
+    password_hash: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: datetime = field(default_factory=datetime.now)
-
-    # Статистика навчання
-    level: int = 1
-    current_xp: int = 0
-    xp_to_next_level: int = 100
     total_completed_goals: int = 0
     avatar_path: str = ""
-
 
 @dataclass
 class LearningGoal:
@@ -43,7 +34,16 @@ class LearningGoal:
     deadline: Optional[datetime] = None
     priority: GoalPriority = GoalPriority.MEDIUM
     status: GoalStatus = GoalStatus.PLANNED
-
     user_id: str = ""
     created_at: datetime = field(default_factory=datetime.now)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+@dataclass
+class Habit:
+    """Модель звички (нова)."""
+    title: str
+    user_id: str
+    streak: int = 0
+    # Зберігаємо дату останнього виконання рядком (ISO format YYYY-MM-DD)
+    last_completed_date: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))

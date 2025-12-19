@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit,
-                             QPushButton, QMessageBox)
+                             QPushButton, QMessageBox, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtGui import QColor
 
 
 class LoginWindow(QWidget):
@@ -10,32 +11,72 @@ class LoginWindow(QWidget):
         super().__init__()
         self.auth_service = auth_service
         self.setWindowTitle("Learning Goals Manager - Вхід")
-        self.resize(350, 400)
+        self.resize(380, 450)
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(15)
-        layout.setAlignment(Qt.AlignCenter)
-
+        # СИНЯ ТЕМА (BLUE THEME)
         self.setStyleSheet("""
-            QWidget { background-color: #2b2b2b; color: white; }
-            QLineEdit { padding: 8px; border-radius: 5px; background-color: #3e3e3e; border: 1px solid #555; color: white; }
-            QPushButton { padding: 10px; border-radius: 5px; font-weight: bold; }
+            QWidget {
+                background-color: #0a1929; /* Дуже темний синій */
+                color: #e0e0e0;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            QLineEdit {
+                background-color: #172a45;
+                border: 2px solid #1e4976;
+                border-radius: 8px;
+                padding: 10px;
+                color: white;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #64b5f6; /* Світло-синій неон */
+            }
+            QPushButton {
+                background-color: #1565c0; /* Синій */
+                color: white;
+                border: 2px solid #64b5f6; 
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976d2;
+                border: 2px solid #90caf9;
+            }
+            QPushButton:pressed {
+                background-color: #0d47a1;
+            }
         """)
 
-        # Лого / Назва
-        title = QLabel("Learning Goals Manager")
-        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #4CAF50;")
+        layout = QVBoxLayout()
+        layout.setSpacing(20)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(40, 40, 40, 40)
+
+        # Лого з тінню
+        title = QLabel("LGM")
+        title.setStyleSheet("font-size: 48px; font-weight: bold; color: #64b5f6; margin-bottom: 5px;")
         title.setAlignment(Qt.AlignCenter)
+
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor("#64b5f6"))
+        title.setGraphicsEffect(shadow)
+
         layout.addWidget(title)
 
-        subtitle = QLabel("Ваш персональний трекер цілей")
-        subtitle.setStyleSheet("font-size: 14px; color: #aaaaaa; margin-bottom: 20px;")
+        subtitle = QLabel("Learning Goals Manager")
+        subtitle.setStyleSheet("font-size: 16px; color: #90caf9; margin-bottom: 20px;")
         subtitle.setAlignment(Qt.AlignCenter)
         layout.addWidget(subtitle)
 
-        # Поля вводу
+        # Поля
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Логін")
         layout.addWidget(self.username_input)
@@ -51,15 +92,26 @@ class LoginWindow(QWidget):
         self.confirm_input.hide()
         layout.addWidget(self.confirm_input)
 
-        # Кнопка дії
-        self.btn_action = QPushButton("Увійти")
-        self.btn_action.setStyleSheet("background-color: #4CAF50; color: white;")
+        # Кнопка
+        self.btn_action = QPushButton("УВІЙТИ")
         self.btn_action.clicked.connect(self.handle_action)
         layout.addWidget(self.btn_action)
 
         # Перемикач
         self.toggle_mode_btn = QPushButton("Немає акаунту? Зареєструватися")
-        self.toggle_mode_btn.setStyleSheet("background-color: transparent; color: #2196F3; text-decoration: underline;")
+        self.toggle_mode_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent; 
+                border: none;
+                color: #90caf9; 
+                text-decoration: none;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                color: #64b5f6;
+                text-decoration: underline;
+            }
+        """)
         self.toggle_mode_btn.setCursor(Qt.PointingHandCursor)
         self.toggle_mode_btn.clicked.connect(self.toggle_mode)
         layout.addWidget(self.toggle_mode_btn)
@@ -69,16 +121,13 @@ class LoginWindow(QWidget):
 
     def toggle_mode(self):
         self.is_registration = not self.is_registration
-
         if self.is_registration:
             self.confirm_input.show()
-            self.btn_action.setText("Зареєструватися")
-            self.btn_action.setStyleSheet("background-color: #2196F3; color: white;")
+            self.btn_action.setText("ЗАРЕЄСТРУВАТИСЯ")
             self.toggle_mode_btn.setText("Вже є акаунт? Увійти")
         else:
             self.confirm_input.hide()
-            self.btn_action.setText("Увійти")
-            self.btn_action.setStyleSheet("background-color: #4CAF50; color: white;")
+            self.btn_action.setText("УВІЙТИ")
             self.toggle_mode_btn.setText("Немає акаунту? Зареєструватися")
 
     def handle_action(self):
@@ -92,10 +141,6 @@ class LoginWindow(QWidget):
             success, msg = self.auth_service.login(username, password)
 
         if success:
-            if self.is_registration:
-                QMessageBox.information(self, "Успіх", msg)
-                self.login_successful.emit()
-            else:
-                self.login_successful.emit()
+            self.login_successful.emit()
         else:
             QMessageBox.warning(self, "Помилка", msg)
