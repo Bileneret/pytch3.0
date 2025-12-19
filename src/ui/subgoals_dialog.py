@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QWidget, QProgressBar, QSizePolicy, QFrame, QCheckBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from src.models import SubGoal
+from src.models import SubGoal, GoalStatus
 
 try:
     from src.logic.ai_service import AIService
@@ -42,6 +42,7 @@ class ResizableTextBrowser(QTextEdit):
         self.setPlainText(text)
         self.setFrameStyle(QFrame.NoFrame)
         self.setReadOnly(True)
+        # Стиль
         self.setStyleSheet("color: #94a3b8; font-size: 13px; background-color: transparent; border: none;")
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -152,7 +153,7 @@ class SubgoalItemWidget(QFrame):
         text_layout.addWidget(title_lbl)
 
         if self.subgoal.description:
-            # Використовуємо ResizableTextBrowser для гарантованого переносу
+            # ЗАМІНА QLABEL НА ResizableTextBrowser
             desc_widget = ResizableTextBrowser(self.subgoal.description)
             text_layout.addWidget(desc_widget)
 
@@ -165,9 +166,8 @@ class SubgoalItemWidget(QFrame):
     # Дозволяємо виділяти рядок кліком
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        # Емуляція виділення для parent scroll area layout - це складно без QListWidget.
-        # Тому ми додамо поле 'selected' і змінимо стиль вручну.
-        self.parent_dialog.select_item(self)
+        # Реалізація виділення (в тому числі множинного через Ctrl)
+        self.parent_dialog.handle_item_click(self, event.modifiers())
 
 
 class SubgoalsDialog(QDialog):
@@ -179,7 +179,7 @@ class SubgoalsDialog(QDialog):
 
         goals = self.storage.get_goals(self.parent_window.user_id)
         self.goal = next((g for g in goals if g.id == goal_id), None)
-        self.selected_widget = None  # Для зберігання виділеного елемента
+        self.selected_widgets = []  # Список виділених віджетів
 
         self.setWindowTitle("Управління підцілями")
         self.resize(500, 650)
@@ -270,7 +270,7 @@ class SubgoalsDialog(QDialog):
         while self.items_layout.count():
             child = self.items_layout.takeAt(0)
             if child.widget(): child.widget().deleteLater()
-        self.selected_widget = None
+        self.selected_widgets = []
 
         subgoals = self.storage.get_subgoals(self.goal_id)
 
@@ -278,15 +278,36 @@ class SubgoalsDialog(QDialog):
             item_widget = SubgoalItemWidget(sub, self)
             self.items_layout.addWidget(item_widget)
 
-    def select_item(self, widget):
-        # Зняти виділення з попереднього
-        if self.selected_widget:
-            self.selected_widget.setStyleSheet(
-                "QFrame { background-color: #1e293b; border-bottom: 1px solid #334155; border-radius: 4px; } QFrame:hover { background-color: #1e3a8a; }")
+    def handle_item_click(self, widget, modifiers):
+        """Обробка кліків для виділення (в тому числі з Ctrl)."""
+        is_ctrl = modifiers & Qt.ControlModifier
 
-        self.selected_widget = widget
-        # Встановити стиль виділення
+        if is_ctrl:
+            # Множинне виділення
+            if widget in self.selected_widgets:
+                self.deselect_item(widget)
+            else:
+                self.select_item(widget, append=True)
+        else:
+            # Одиночне виділення (знімаємо з інших)
+            for w in list(self.selected_widgets):
+                self.deselect_item(w)
+            self.select_item(widget, append=False)
+
+    def select_item(self, widget, append=False):
+        if not append:
+            self.selected_widgets = []
+
+        self.selected_widgets.append(widget)
+        # Стиль виділення
         widget.setStyleSheet("QFrame { background-color: #1d4ed8; border: 1px solid #60a5fa; border-radius: 4px; }")
+
+    def deselect_item(self, widget):
+        if widget in self.selected_widgets:
+            self.selected_widgets.remove(widget)
+        # Стиль звичайний
+        widget.setStyleSheet(
+            "QFrame { background-color: #1e293b; border-bottom: 1px solid #334155; border-radius: 4px; } QFrame:hover { background-color: #1e3a8a; }")
 
     def add_subgoal(self):
         dialog = SubGoalInputDialog(self)
@@ -298,11 +319,17 @@ class SubgoalsDialog(QDialog):
                 self.update_list()
 
     def edit_subgoal(self):
-        if not self.selected_widget:
-            QMessageBox.warning(self, "Увага", "Оберіть підціль для редагування (клікніть по ній)")
+        if not self.selected_widgets:
+            QMessageBox.warning(self, "Увага", "Оберіть підціль для редагування")
             return
 
-        sub = self.selected_widget.subgoal
+        # 4. Попередження, якщо вибрано більше однієї
+        if len(self.selected_widgets) > 1:
+            QMessageBox.warning(self, "Увага", "Для редагування треба вибрати лише одну підціль.")
+            return
+
+        widget = self.selected_widgets[0]
+        sub = widget.subgoal
         dialog = SubGoalInputDialog(self, title_text=sub.title, desc_text=sub.description)
         if dialog.exec_():
             title, desc = dialog.get_data()
@@ -313,19 +340,48 @@ class SubgoalsDialog(QDialog):
                 self.update_list()
 
     def delete_subgoal(self):
-        if not self.selected_widget:
-            QMessageBox.warning(self, "Увага", "Оберіть підціль для видалення")
+        if not self.selected_widgets:
+            QMessageBox.warning(self, "Увага", "Оберіть підціль(лі) для видалення")
             return
 
-        sub = self.selected_widget.subgoal
-        reply = QMessageBox.question(self, "Видалити", "Видалити цей крок?", QMessageBox.Yes | QMessageBox.No)
+        count = len(self.selected_widgets)
+        msg = "Видалити цю підціль?" if count == 1 else f"Видалити {count} підцілей?"
+
+        # 2. Виправлений текст повідомлення
+        reply = QMessageBox.question(self, "Видалити", msg, QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self.storage.delete_subgoal(sub.id)
+            for widget in self.selected_widgets:
+                self.storage.delete_subgoal(widget.subgoal.id)
             self.update_list()
 
     def toggle_subgoal(self, state, sub):
         sub.is_completed = (state == Qt.Checked)
         self.storage.save_subgoal(sub)
+
+        # 1. Перевірка автозавершення головної цілі
+        all_subs = self.storage.get_subgoals(self.goal_id)
+        total = len(all_subs)
+        completed = sum(1 for s in all_subs if s.is_completed)
+
+        if total > 0 and completed == total and self.goal.status != GoalStatus.COMPLETED:
+            self.goal.status = GoalStatus.COMPLETED
+            self.storage.save_goal(self.goal)
+
+            # Оновлюємо статистику
+            self.parent_window.user.total_completed_goals += 1
+            self.storage.update_user_stats(self.parent_window.user.id, self.parent_window.user.total_completed_goals)
+
+            QMessageBox.information(self, "Вітаємо", "Всі підцілі виконано! Головна ціль завершена.")
+            # Можна закрити діалог або оновити батьківське вікно
+
+        elif self.goal.status == GoalStatus.COMPLETED and completed < total:
+            self.goal.status = GoalStatus.PLANNED
+            self.storage.save_goal(self.goal)
+
+            if self.parent_window.user.total_completed_goals > 0:
+                self.parent_window.user.total_completed_goals -= 1
+                self.storage.update_user_stats(self.parent_window.user.id,
+                                               self.parent_window.user.total_completed_goals)
 
     def generate_ai_subgoals(self):
         if not self.goal: return
