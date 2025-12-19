@@ -1,26 +1,25 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QListWidget, QListWidgetItem,
-                             QProgressBar, QFrame, QMessageBox, QInputDialog)
-from PyQt5.QtCore import Qt
+                             QFrame, QInputDialog)
+from PyQt5.QtCore import Qt, pyqtSignal
 from ..models import LearningGoal, GoalStatus
 
 
 class MainWindow(QMainWindow):
+    # Сигнал, який повідомляє контролеру, що користувач хоче вийти
+    logout_requested = pyqtSignal()
+
     def __init__(self, user_id, storage_service):
         super().__init__()
         self.user_id = user_id
         self.storage = storage_service
 
-        # 1. ЗАВАНТАЖЕННЯ КОРИСТУВАЧА (Виправляємо помилку)
         self.user = self.storage.get_user_by_id(self.user_id)
-
         if not self.user:
-            # Критична помилка, якщо користувача не знайдено (наприклад, БД видалили під час роботи)
-            print(f"CRITICAL ERROR: User with ID {user_id} not found!")
             self.close()
             return
 
-        self.setWindowTitle(f"Pytch: {self.user.username}'s Workspace")
+        self.setWindowTitle(f"Learning Goals Manager - {self.user.username}")
         self.resize(1100, 700)
 
         self.init_ui()
@@ -40,12 +39,13 @@ class MainWindow(QMainWindow):
         sidebar.setFixedWidth(250)
         sidebar_layout = QVBoxLayout(sidebar)
 
-        app_label = QLabel("PYTCH")
-        app_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffffff; margin-bottom: 20px;")
+        # Назва
+        app_label = QLabel("Goals Manager")
+        app_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #ffffff; margin-bottom: 10px;")
         app_label.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(app_label)
 
-        user_label = QLabel(f"👤 {self.user.username}")
+        user_label = QLabel(f"Користувач: {self.user.username}")
         user_label.setStyleSheet("color: #aaaaaa; font-size: 14px; margin-bottom: 20px;")
         user_label.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(user_label)
@@ -56,9 +56,11 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        btn_exit = QPushButton("Вихід")
+        # Кнопка ВИХІД
+        btn_exit = QPushButton("Вийти з акаунту")
         btn_exit.setStyleSheet("background-color: #d32f2f; color: white; padding: 10px; border-radius: 5px;")
-        btn_exit.clicked.connect(self.close)
+        # Замість close() тепер викликаємо свій метод
+        btn_exit.clicked.connect(self.on_logout_click)
         sidebar_layout.addWidget(btn_exit)
 
         # --- ПРАВА ПАНЕЛЬ ---
@@ -67,18 +69,15 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(content_area)
         content_layout.setContentsMargins(40, 40, 40, 40)
 
-        # Заголовок
         self.lbl_page_title = QLabel("Мої Навчальні Цілі")
         self.lbl_page_title.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
         content_layout.addWidget(self.lbl_page_title)
 
-        # Список
         self.goals_list = QListWidget()
         self.goals_list.setStyleSheet(
             "background-color: #252526; color: white; font-size: 14px; padding: 10px; border-radius: 5px;")
         content_layout.addWidget(self.goals_list)
 
-        # Кнопки
         btn_add = QPushButton("+ Додати Ціль")
         btn_add.setStyleSheet("background-color: #007ACC; color: white; padding: 10px; border-radius: 5px;")
         btn_add.clicked.connect(self.add_goal_dialog)
@@ -86,6 +85,10 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(sidebar)
         main_layout.addWidget(content_area)
+
+    def on_logout_click(self):
+        """Обробка натискання кнопки виходу."""
+        self.logout_requested.emit()
 
     def load_data(self):
         self.goals_list.clear()
