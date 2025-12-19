@@ -7,19 +7,14 @@ from datetime import date
 
 
 class QuestCard(QFrame):
-    """
-    Картка для відображення цілі (квесту).
-    """
-
     def __init__(self, goal, parent_tab):
         super().__init__()
         self.goal = goal
-        self.parent_tab = parent_tab  # Посилання на вкладку (QuestTab)
-        self.storage = parent_tab.mw.storage  # Доступ до БД через головне вікно
+        self.parent_tab = parent_tab
+        self.storage = parent_tab.mw.storage
         self.init_ui()
 
     def init_ui(self):
-        # Стиль картки
         self.setStyleSheet("""
             QFrame {
                 background-color: #1e293b;
@@ -44,7 +39,7 @@ class QuestCard(QFrame):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(8)
 
-        # --- HEADER ---
+        # HEADER
         header_layout = QHBoxLayout()
         status_icon = "🔵" if self.goal.status == GoalStatus.PLANNED else "✅"
         title_lbl = QLabel(f"{status_icon} {self.goal.title}")
@@ -63,16 +58,16 @@ class QuestCard(QFrame):
         header_layout.addWidget(delete_btn)
         layout.addLayout(header_layout)
 
-        # --- DESCRIPTION ---
+        # DESCRIPTION
         if self.goal.description:
             desc_lbl = QLabel(self.goal.description)
-            desc_lbl.setWordWrap(True)  # ВАЖЛИВО: Перенесення слів
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
             desc_lbl.setStyleSheet("color: #cbd5e1; font-size: 14px; margin-bottom: 5px;")
-            # ВИПРАВЛЕНО: Використання констант QSizePolicy
-            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
             layout.addWidget(desc_lbl)
 
-        # --- PROGRESS BAR ---
+        # PROGRESS BAR
         self.subgoals = self.storage.get_subgoals(self.goal.id)
         total_subs = len(self.subgoals)
         completed_subs = sum(1 for s in self.subgoals if s.is_completed)
@@ -84,7 +79,7 @@ class QuestCard(QFrame):
             self.progress_bar.setFormat(f"%p% ({completed_subs}/{total_subs})")
             layout.addWidget(self.progress_bar)
 
-        # --- DETAILS ---
+        # DETAILS
         details_text = f"Пріоритет: {self.goal.priority.value}"
         if self.goal.deadline:
             details_text += f"  |  Дедлайн: {self.goal.deadline}"
@@ -92,44 +87,33 @@ class QuestCard(QFrame):
         details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 2px;")
         layout.addWidget(details_lbl)
 
-        # --- SUBGOALS LIST ---
+        # SUBGOALS LIST (INLINE - ТІЛЬКИ НАЗВИ)
         if self.subgoals:
             sub_container = QFrame()
             sub_container.setStyleSheet("background-color: #111827; border-radius: 6px; margin-top: 8px; border: none;")
             sub_layout = QVBoxLayout(sub_container)
             sub_layout.setContentsMargins(10, 10, 10, 10)
-            sub_layout.setSpacing(12)  # Відступ між підцілями
+            sub_layout.setSpacing(8)
 
             for sub in self.subgoals:
-                row = QWidget()
-                r_layout = QVBoxLayout(row)
-                r_layout.setContentsMargins(0, 0, 0, 0)
-                r_layout.setSpacing(4)
+                row = QHBoxLayout()
+                row.setContentsMargins(0, 0, 0, 0)
 
-                # Checkbox row
-                top_row = QHBoxLayout()
                 chk = QCheckBox(sub.title)
                 chk.setChecked(sub.is_completed)
                 chk.stateChanged.connect(lambda state, s=sub: self.toggle_subgoal(state, s))
-                top_row.addWidget(chk)
-                top_row.addStretch()
-                r_layout.addLayout(top_row)
 
-                # Description row
-                if sub.description:
-                    sub_desc = QLabel(sub.description)
-                    sub_desc.setWordWrap(True)  # ВАЖЛИВО: Текст підцілі теж переноситься
-                    sub_desc.setStyleSheet("color: #94a3b8; font-size: 12px; margin-left: 24px;")
-                    # Також додаємо SizePolicy для коректного відображення довгих описів підцілей
-                    sub_desc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                    r_layout.addWidget(sub_desc)
+                row.addWidget(chk)
+                row.addStretch()
 
-                sub_layout.addWidget(row)
+                sub_layout.addLayout(row)
+                # ОПИС ТУТ БІЛЬШЕ НЕ ДОДАЄТЬСЯ
+
             layout.addWidget(sub_container)
 
         layout.addSpacing(5)
 
-        # --- BUTTONS ---
+        # BUTTONS
         btn_layout = QHBoxLayout()
         btn_style = """
             QPushButton { 
@@ -171,7 +155,6 @@ class QuestCard(QFrame):
         subgoal.is_completed = (state == Qt.Checked)
         self.storage.save_subgoal(subgoal)
 
-        # Check auto-complete
         all_subs = self.storage.get_subgoals(self.goal.id)
         total = len(all_subs)
         completed = sum(1 for s in all_subs if s.is_completed)
@@ -185,7 +168,7 @@ class QuestCard(QFrame):
         elif self.goal.status == GoalStatus.COMPLETED:
             self.goal.status = GoalStatus.PLANNED
             self.storage.save_goal(self.goal)
-            self.parent_tab.mw.update_stats(-1)  # Відкат статистики
+            self.parent_tab.mw.update_stats(-1)
             self.parent_tab.update_list()
 
     def complete_goal(self):
@@ -215,8 +198,6 @@ class QuestCard(QFrame):
 
 
 class HabitCard(QFrame):
-    """Картка для звички."""
-
     def __init__(self, habit, parent_tab):
         super().__init__()
         self.habit = habit
@@ -252,7 +233,6 @@ class HabitCard(QFrame):
         layout.addWidget(streak)
 
     def mouseDoubleClickEvent(self, event):
-        # Подвійний клік - виконати звичку
         today_str = date.today().isoformat()
         if self.habit.last_completed_date != today_str:
             self.habit.streak += 1

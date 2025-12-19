@@ -9,24 +9,29 @@ class HabitTab(BaseTab):
     def __init__(self, parent, main_window):
         super().__init__(parent, main_window)
         self.setup_header()
+        self.setup_footer()
         self.update_list()
 
     def setup_header(self):
         header = QHBoxLayout()
         header.setContentsMargins(10, 10, 10, 0)
-
         title = QLabel("Трекер Звичок")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
+        header.addWidget(title)
+        header.addStretch()
+        self.layout.insertLayout(0, header)
+
+    def setup_footer(self):
+        footer = QHBoxLayout()
+        footer.setContentsMargins(10, 10, 10, 10)
 
         btn_add = QPushButton("+ Нова Звичка")
         btn_add.setProperty("class", "actionBtn")
         btn_add.clicked.connect(self.add_habit)
 
-        header.addWidget(title)
-        header.addStretch()
-        header.addWidget(btn_add)
-
-        self.layout.insertLayout(0, header)
+        footer.addWidget(btn_add)
+        footer.addStretch()
+        self.layout.addLayout(footer)
 
     def update_list(self):
         self.clear_list()

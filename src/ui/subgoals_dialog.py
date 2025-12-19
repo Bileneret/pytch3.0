@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QHBoxLayout, QPushButton, QMessageBox, QLineEdit, QTextEdit,
-    QAbstractItemView, QWidget, QProgressBar, QSizePolicy
+    QAbstractItemView, QWidget, QProgressBar, QSizePolicy, QCheckBox
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from src.models import SubGoal
 
 try:
@@ -24,9 +24,8 @@ class AIWorker(QThread):
 
     def run(self):
         if not AIService:
-            self.error.emit("AI Service не знайдено або не налаштовано.")
+            self.error.emit("AI Service не знайдено.")
             return
-
         try:
             service = AIService()
             subgoals_data = service.generate_subgoals(self.goal_title, self.goal_desc, self.difficulty)
@@ -36,66 +35,77 @@ class AIWorker(QThread):
 
 
 class SubGoalInputDialog(QDialog):
-    """Діалог для додавання/редагування підцілі."""
-
     def __init__(self, parent=None, title_text="", desc_text=""):
         super().__init__(parent)
         self.setWindowTitle("Підціль")
         self.resize(400, 300)
-
         self.setStyleSheet("""
             QDialog { background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI'; }
             QLabel { color: #90caf9; font-weight: bold; font-size: 14px; margin-top: 10px; }
             QLineEdit, QTextEdit { 
-                background-color: #172a45; 
-                color: white; 
-                border: 1px solid #1e4976; 
-                padding: 8px; 
-                border-radius: 6px; 
+                background-color: #172a45; color: white; border: 1px solid #1e4976; 
+                padding: 8px; border-radius: 6px; 
             }
             QLineEdit:focus, QTextEdit:focus { border: 1px solid #3b82f6; }
-
             QPushButton { 
-                background-color: #1d4ed8; 
-                color: white; 
-                border: 1px solid #3b82f6;
-                padding: 8px 16px; 
-                border-radius: 6px; 
-                font-weight: bold;
+                background-color: #1d4ed8; color: white; border: 1px solid #3b82f6;
+                padding: 8px 16px; border-radius: 6px; font-weight: bold;
             }
             QPushButton:hover { background-color: #2563eb; }
             QPushButton#CancelBtn { background-color: #1e293b; border: 1px solid #475569; color: #cbd5e1; }
             QPushButton#CancelBtn:hover { background-color: #334155; }
         """)
-
         layout = QVBoxLayout()
-
         layout.addWidget(QLabel("Назва:"))
         self.title_input = QLineEdit(title_text)
         layout.addWidget(self.title_input)
-
         layout.addWidget(QLabel("Опис:"))
         self.desc_input = QTextEdit()
         self.desc_input.setPlainText(desc_text)
         layout.addWidget(self.desc_input)
 
-        btns_layout = QHBoxLayout()
+        btns = QHBoxLayout()
         btn_save = QPushButton("Зберегти")
         btn_save.clicked.connect(self.accept)
-
         btn_cancel = QPushButton("Скасувати")
         btn_cancel.setObjectName("CancelBtn")
         btn_cancel.clicked.connect(self.reject)
-
-        btns_layout.addStretch()
-        btns_layout.addWidget(btn_cancel)
-        btns_layout.addWidget(btn_save)
-
-        layout.addLayout(btns_layout)
+        btns.addStretch()
+        btns.addWidget(btn_cancel)
+        btns.addWidget(btn_save)
+        layout.addLayout(btns)
         self.setLayout(layout)
 
     def get_data(self):
         return self.title_input.text().strip(), self.desc_input.toPlainText().strip()
+
+
+class SubgoalListWidget(QWidget):
+    """
+    Кастомний віджет, який вставляється всередину QListWidgetItem.
+    Це дозволяє мати Title + Description (WordWrap) в одному елементі списку.
+    """
+
+    def __init__(self, subgoal):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(2)
+
+        # Назва
+        title_lbl = QLabel(subgoal.title)
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: white; background: transparent;")
+        layout.addWidget(title_lbl)
+
+        # Опис (якщо є)
+        if subgoal.description:
+            desc_lbl = QLabel(subgoal.description)
+            desc_lbl.setWordWrap(True)  # Автоматичний перенос тексту
+            desc_lbl.setStyleSheet("font-size: 13px; color: #94a3b8; background: transparent;")
+            # Важливо: політика розміру для розтягування
+            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+            layout.addWidget(desc_lbl)
 
 
 class SubgoalsDialog(QDialog):
@@ -116,53 +126,28 @@ class SubgoalsDialog(QDialog):
     def init_ui(self):
         self.setStyleSheet("""
             QDialog { background-color: #0b0f19; color: white; font-family: 'Segoe UI'; }
-
             QListWidget { 
-                background-color: #111827; 
-                border: 2px solid #1e3a8a; 
-                border-radius: 8px; 
-                padding: 5px;
-                outline: none;
+                background-color: #111827; border: 2px solid #1e3a8a; 
+                border-radius: 8px; padding: 5px; outline: none;
             }
             QListWidget::item { 
-                background-color: #1e293b;
-                border-bottom: 1px solid #334155; 
-                margin-bottom: 5px; 
-                border-radius: 4px;
+                background-color: #1e293b; border-bottom: 1px solid #334155; 
+                margin-bottom: 5px; border-radius: 4px; 
             }
             QListWidget::item:selected { 
-                background-color: #1d4ed8; 
-                border: 1px solid #60a5fa; 
+                background-color: #1d4ed8; border: 1px solid #60a5fa; 
             }
-
             QPushButton { 
-                background-color: #1e3a8a; 
-                color: white; 
-                border: 1px solid #3b82f6; 
-                border-radius: 6px; 
-                padding: 9px 12px; 
-                font-weight: bold;
-                font-size: 13px;
+                background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; 
+                border-radius: 6px; padding: 9px 12px; font-weight: bold; font-size: 13px;
             }
             QPushButton:hover { background-color: #2563eb; }
-
-            QPushButton#AiBtn { 
-                background-color: #7c3aed; 
-                border-color: #8b5cf6; 
-            }
+            QPushButton#AiBtn { background-color: #7c3aed; border-color: #8b5cf6; }
             QPushButton#AiBtn:hover { background-color: #8b5cf6; }
-
-            QPushButton#DelBtn { 
-                background-color: #7f1d1d; 
-                border-color: #ef4444; 
-            }
+            QPushButton#DelBtn { background-color: #7f1d1d; border-color: #ef4444; }
             QPushButton#DelBtn:hover { background-color: #b91c1c; }
-
             QProgressBar {
-                border: 2px solid #1e3a8a;
-                border-radius: 5px;
-                text-align: center;
-                background-color: #0f172a;
+                border: 2px solid #1e3a8a; border-radius: 5px; text-align: center; background-color: #0f172a;
             }
             QProgressBar::chunk { background-color: #7c3aed; }
         """)
@@ -176,8 +161,9 @@ class SubgoalsDialog(QDialog):
         header.setWordWrap(True)
         layout.addWidget(header)
 
+        # QListWidget (Classic approach)
         self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
         self.list_widget.itemDoubleClicked.connect(self.edit_subgoal)
         layout.addWidget(self.list_widget)
 
@@ -187,8 +173,7 @@ class SubgoalsDialog(QDialog):
         self.loading_bar.setFixedHeight(10)
         layout.addWidget(self.loading_bar)
 
-        btns_layout = QHBoxLayout()
-
+        btns = QHBoxLayout()
         btn_add = QPushButton("Додати")
         btn_add.clicked.connect(self.add_subgoal)
 
@@ -203,12 +188,11 @@ class SubgoalsDialog(QDialog):
         btn_del.setObjectName("DelBtn")
         btn_del.clicked.connect(self.delete_subgoal)
 
-        btns_layout.addWidget(btn_add)
-        btns_layout.addWidget(btn_edit)
-        btns_layout.addWidget(btn_ai)
-        btns_layout.addWidget(btn_del)
-
-        layout.addLayout(btns_layout)
+        btns.addWidget(btn_add)
+        btns.addWidget(btn_edit)
+        btns.addWidget(btn_ai)
+        btns.addWidget(btn_del)
+        layout.addLayout(btns)
 
         btn_close = QPushButton("Закрити")
         btn_close.setStyleSheet("background-color: transparent; border: 1px solid #475569; margin-top: 10px;")
@@ -222,18 +206,18 @@ class SubgoalsDialog(QDialog):
         subgoals = self.storage.get_subgoals(self.goal_id)
 
         for sub in subgoals:
-            display_text = f"{sub.title}"
-            if sub.description:
-                display_text += f"\n   ⤷ {sub.description[:50]}..." if len(
-                    sub.description) > 50 else f"\n   ⤷ {sub.description}"
-
-            item = QListWidgetItem(display_text)
+            item = QListWidgetItem()
+            # Зберігаємо об'єкт підцілі в UserRole
             item.setData(Qt.UserRole, sub)
 
-            if sub.is_completed:
-                item.setForeground(Qt.gray)
+            # Створюємо кастомний віджет для відображення
+            widget = SubgoalListWidget(sub)
+
+            # Встановлюємо розмір елемента списку на основі розміру віджета
+            item.setSizeHint(widget.sizeHint())
 
             self.list_widget.addItem(item)
+            self.list_widget.setItemWidget(item, widget)
 
     def add_subgoal(self):
         dialog = SubGoalInputDialog(self)
@@ -245,12 +229,13 @@ class SubgoalsDialog(QDialog):
                 self.update_list()
 
     def edit_subgoal(self):
-        selected_items = self.list_widget.selectedItems()
-        if not selected_items:
+        # Якщо викликано подвійним кліком, отримуємо item, інакше з selectedItems
+        items = self.list_widget.selectedItems()
+        if not items:
             QMessageBox.warning(self, "Увага", "Оберіть підціль для редагування")
             return
 
-        item = selected_items[0]
+        item = items[0]
         sub = item.data(Qt.UserRole)
 
         dialog = SubGoalInputDialog(self, title_text=sub.title, desc_text=sub.description)
@@ -263,17 +248,14 @@ class SubgoalsDialog(QDialog):
                 self.update_list()
 
     def delete_subgoal(self):
-        selected_items = self.list_widget.selectedItems()
-        if not selected_items:
-            QMessageBox.warning(self, "Увага", "Оберіть підціль(лі) для видалення")
+        items = self.list_widget.selectedItems()
+        if not items:
+            QMessageBox.warning(self, "Увага", "Оберіть підціль для видалення")
             return
 
-        count = len(selected_items)
-        reply = QMessageBox.question(self, "Видалити", f"Видалити {count} підцілей?",
-                                     QMessageBox.Yes | QMessageBox.No)
-
+        reply = QMessageBox.question(self, "Видалити", "Видалити обрану підціль?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            for item in selected_items:
+            for item in items:
                 sub = item.data(Qt.UserRole)
                 self.storage.delete_subgoal(sub.id)
             self.update_list()
@@ -281,14 +263,12 @@ class SubgoalsDialog(QDialog):
     def generate_ai_subgoals(self):
         if not self.goal: return
         if not AIService:
-            QMessageBox.information(self, "AI", "AI сервіс недоступний (модуль не знайдено).")
+            QMessageBox.information(self, "AI", "AI сервіс недоступний.")
             return
 
         self.loading_bar.setVisible(True)
         self.setEnabled(False)
-
         difficulty = self.goal.priority.value if hasattr(self.goal, 'priority') else "Середній"
-
         self.thread = AIWorker(self.goal.title, self.goal.description, difficulty)
         self.thread.finished.connect(self.on_ai_finished)
         self.thread.error.connect(self.on_ai_error)
@@ -297,20 +277,16 @@ class SubgoalsDialog(QDialog):
     def on_ai_finished(self, subgoals_data):
         self.loading_bar.setVisible(False)
         self.setEnabled(True)
-
         if not subgoals_data:
             QMessageBox.information(self, "AI", "Не вдалося згенерувати підцілі.")
             return
-
         for data in subgoals_data:
             title = data.get('title', 'AI Step') if isinstance(data, dict) else str(data)
             desc = data.get('description', '') if isinstance(data, dict) else ""
-
             new_sub = SubGoal(title=title, description=desc, goal_id=self.goal_id)
             self.storage.save_subgoal(new_sub)
-
         self.update_list()
-        QMessageBox.information(self, "Успіх", f"Додано {len(subgoals_data)} кроків від ШІ!")
+        QMessageBox.information(self, "Успіх", f"Додано {len(subgoals_data)} кроків!")
 
     def on_ai_error(self, err_msg):
         self.loading_bar.setVisible(False)

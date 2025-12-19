@@ -82,18 +82,27 @@ class StorageService:
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # INSERT OR REPLACE може змінювати rowid, тому сортування треба робити по created_at
-        c.execute('''INSERT OR REPLACE INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (goal.id, goal.user_id, goal.title, goal.description,
-                   str(goal.deadline) if goal.deadline else None,
-                   goal.priority.name, goal.status.name, str(goal.created_at)))
+        # Щоб уникнути зміни порядку, якщо запис існує, робимо UPDATE, інакше INSERT
+        c.execute("SELECT 1 FROM goals WHERE id = ?", (goal.id,))
+        exists = c.fetchone()
+
+        if exists:
+            c.execute('''UPDATE goals SET title=?, description=?, deadline=?, priority=?, status=? WHERE id=?''',
+                      (goal.title, goal.description, str(goal.deadline) if goal.deadline else None,
+                       goal.priority.name, goal.status.name, goal.id))
+        else:
+            c.execute('''INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                      (goal.id, goal.user_id, goal.title, goal.description,
+                       str(goal.deadline) if goal.deadline else None,
+                       goal.priority.name, goal.status.name, str(goal.created_at)))
         conn.commit()
         conn.close()
 
     def get_goals(self, user_id: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # Сортуємо по даті створення, щоб порядок був стабільним
+        # ВАЖЛИВО: Сортування по created_at DESC (спочатку нові) або ASC (спочатку старі)
+        # Щоб при редагуванні порядок не ламався, використовуємо незмінне поле created_at
         c.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         rows = c.fetchall()
         conn.close()
