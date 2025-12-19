@@ -1,16 +1,15 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit,
-    QPushButton, QLabel, QProgressBar, QMessageBox, QFrame, QSizePolicy
+    QPushButton, QLabel, QProgressBar, QMessageBox, QFrame, QScrollArea, QWidget
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from datetime import datetime, timedelta
 from src.logic.ai_service import AIService
-from src.models import Goal, Difficulty, SubGoal
+from src.models import LearningGoal, GoalPriority, SubGoal
 
 
 class AIChatWorker(QThread):
-    """Потік для спілкування з AI, щоб не блокувати GUI."""
-    response_received = pyqtSignal(str, object)  # text, json_data
+    response_received = pyqtSignal(str, object)
 
     def __init__(self, ai_service, chat_session, message):
         super().__init__()
@@ -19,285 +18,260 @@ class AIChatWorker(QThread):
         self.message = message
 
     def run(self):
-        text, json_data = self.service.send_to_chat(self.chat, self.message)
-        self.response_received.emit(text, json_data)
+        try:
+            text, json_data = self.service.send_to_chat(self.chat, self.message)
+            self.response_received.emit(text, json_data)
+        except Exception as e:
+            self.response_received.emit(f"Помилка: {str(e)}", None)
 
 
 class ChatInputArea(QTextEdit):
-    """
-    Кастомне поле вводу для чату з авторозширенням.
-    Enter - відправити.
-    Shift + Enter - новий рядок + розширення висоти.
-    """
     submit_request = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setPlaceholderText("Опишіть вашу ціль тут... (Shift+Enter для переносу)")
-
+        self.setPlaceholderText("Опишіть ціль (наприклад: 'Хочу вивчити Python')...")
         self.setStyleSheet("""
             QTextEdit {
-                padding: 10px;
-                border: 1px solid #555;
-                border-radius: 5px;
-                background-color: #333;
-                color: white;
+                background-color: #172a45;
+                color: #e0e0e0;
+                border: 1px solid #1e4976;
+                border-radius: 8px;
+                padding: 8px;
+                font-size: 14px;
+            }
+            QTextEdit:focus {
+                border: 1px solid #3b82f6;
             }
         """)
-
-        # Налаштування розмірів
-        self.MIN_HEIGHT = 50  # ~1-2 рядки
-        self.MAX_HEIGHT = 180  # ~10 рядків
-
-        self.setFixedHeight(self.MIN_HEIGHT)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFixedHeight(45)
 
-        self.textChanged.connect(self.adjust_height)
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Return and not (event.modifiers() & Qt.ShiftModifier):
+            self.submit_request.emit()
+        else:
+            super().keyPressEvent(event)
+            self.adjust_height()
 
     def adjust_height(self):
         doc_height = self.document().size().height()
-        new_height = int(doc_height + 20)
+        new_height = min(max(45, int(doc_height + 10)), 100)
+        self.setFixedHeight(new_height)
 
-        if new_height > self.MAX_HEIGHT:
-            self.setFixedHeight(self.MAX_HEIGHT)
-            self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        elif new_height < self.MIN_HEIGHT:
-            self.setFixedHeight(self.MIN_HEIGHT)
-            self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        else:
-            self.setFixedHeight(new_height)
-            self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Return:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.insertPlainText("\n")
-            else:
-                self.submit_request.emit()
-                return
+class ChatBubble(QFrame):
+    def __init__(self, text, is_user=True):
+        super().__init__()
+        # 4. Прибираємо всі рамки з самого фрейму
+        self.setStyleSheet("background: transparent; border: none;")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 5, 0, 5)
+
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        # Стилізація повідомлень (БЕЗ РАМОК)
+        if is_user:
+            label.setStyleSheet("""
+                QLabel {
+                    background-color: #2563eb; 
+                    color: white;
+                    border-radius: 12px;
+                    padding: 12px;
+                    font-size: 14px;
+                    border: none; /* Прибираємо біле обведення */
+                }
+            """)
+            layout.addStretch()
+            layout.addWidget(label)
         else:
-            super().keyPressEvent(event)
+            label.setStyleSheet("""
+                QLabel {
+                    background-color: #1e3a8a;
+                    color: #e0e0e0;
+                    border-radius: 12px;
+                    padding: 12px;
+                    font-size: 14px;
+                    border: none; /* Прибираємо рамку */
+                }
+            """)
+            layout.addWidget(label)
+            layout.addStretch()
 
 
 class AIGoalDialog(QDialog):
-    """Діалог чату з AI для створення цілі."""
-
-    def __init__(self, parent, service):
+    def __init__(self, parent, user_id, storage):
         super().__init__(parent)
-        self.main_service = service  # GoalService
-        self.ai_service = AIService()
-        self.chat_session = None
-        self.generated_goal_data = None  # Тут буде JSON, коли AI його видасть
+        self.user_id = user_id
+        self.storage = storage
+        self.setWindowTitle("AI Асистент 🤖")
+        self.resize(500, 700)
 
-        self.setWindowTitle("AI Помічник 🤖")
-        self.resize(600, 700)
-        self.setup_ui()
+        try:
+            self.ai_service = AIService()
+            self.chat_session = self.ai_service.start_chat()
+        except Exception as e:
+            QMessageBox.warning(self, "Помилка", f"Не вдалося запустити AI: {e}")
+            self.ai_service = None
 
-        # Запускаємо чат
-        self.start_chat()
+        self.init_ui()
 
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-
-        # 1. Область чату
-        self.chat_area = QTextEdit()
-        self.chat_area.setReadOnly(True)
-        self.chat_area.setStyleSheet("""
-            QTextEdit {
-                background-color: #2b2b2b;
-                color: #e0e0e0;
-                border: 1px solid #555;
-                border-radius: 5px;
-                padding: 10px;
-                font-size: 13px;
+    def init_ui(self):
+        self.setStyleSheet("""
+            QDialog { background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI'; }
+            QScrollArea { border: none; background: transparent; }
+            QPushButton {
+                background-color: #1e3a8a; color: white; border: 1px solid #3b82f6;
+                border-radius: 6px; padding: 8px 16px; font-weight: bold;
             }
-        """)
-        layout.addWidget(self.chat_area)
+            QPushButton:hover { background-color: #2563eb; }
+            /* Кнопка прийняття цілі */
+            QPushButton#AcceptBtn {
+                background-color: #059669; border-color: #10b981; margin-top: 5px;
+            }
+            QPushButton#AcceptBtn:hover { background-color: #047857; }
 
-        # 2. Індикатор завантаження
+            QProgressBar { border: none; background-color: #0f172a; height: 3px; }
+            QProgressBar::chunk { background-color: #3b82f6; }
+        """)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(10)
+
+        # Чат
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.chat_container = QWidget()
+        self.chat_layout = QVBoxLayout(self.chat_container)
+        self.chat_layout.setAlignment(Qt.AlignTop)
+        self.chat_layout.setSpacing(10)
+        self.scroll_area.setWidget(self.chat_container)
+        main_layout.addWidget(self.scroll_area)
+
+        # Прогрес бар
         self.loading_bar = QProgressBar()
         self.loading_bar.setRange(0, 0)
-        self.loading_bar.setFixedHeight(3)
-        self.loading_bar.setTextVisible(False)
-        self.loading_bar.setStyleSheet(
-            "QProgressBar { background: transparent; border: none; } QProgressBar::chunk { background-color: #3498db; }")
-        self.loading_bar.hide()
-        layout.addWidget(self.loading_bar)
+        self.loading_bar.setVisible(False)
+        main_layout.addWidget(self.loading_bar)
 
-        # 3. Поле вводу
+        # Ввід
         input_layout = QHBoxLayout()
+        self.text_input = ChatInputArea()
+        self.text_input.submit_request.connect(self.send_message)
 
-        self.input_field = ChatInputArea()
-        self.input_field.submit_request.connect(self.send_message)
-
-        input_layout.addWidget(self.input_field)
-
-        # Кнопка відправити
         self.btn_send = QPushButton("➤")
-        self.btn_send.setFixedSize(40, 40)
-        self.btn_send.setCursor(Qt.PointingHandCursor)
-        self.btn_send.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border-radius: 20px;
-                font-weight: bold;
-                font-size: 16px;
-            }
-            QPushButton:hover { background-color: #2980b9; }
-        """)
+        self.btn_send.setFixedSize(45, 45)
+        self.btn_send.setStyleSheet("border-radius: 22px; font-size: 18px;")
         self.btn_send.clicked.connect(self.send_message)
 
-        input_layout.addWidget(self.btn_send, 0, Qt.AlignBottom)
+        input_layout.addWidget(self.text_input)
+        input_layout.addWidget(self.btn_send)
+        main_layout.addLayout(input_layout)
 
-        layout.addLayout(input_layout)
+        # Старт
+        self.add_message("Привіт! Напишіть тему цілі, а я складу план (День 1, День 2...).", is_user=False)
 
-        # 4. Кнопка "Додати" (З'являється в кінці)
-        self.btn_add = QPushButton("✅ Додати Ціль")
-        self.btn_add.setCursor(Qt.PointingHandCursor)
-        self.btn_add.setEnabled(False)  # Спочатку вимкнена
-        self.btn_add.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                padding: 12px;
-                border-radius: 5px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:disabled {
-                background-color: #555;
-                color: #888;
-            }
-            QPushButton:hover:!disabled { background-color: #2ecc71; }
-        """)
-        self.btn_add.clicked.connect(self.finalize_goal)
-        layout.addWidget(self.btn_add)
+    def add_message(self, text, is_user=True):
+        if not text: return
+        bubble = ChatBubble(text, is_user)
+        self.chat_layout.addWidget(bubble)
+        self.scroll_to_bottom()
 
-    def start_chat(self):
-        """Ініціалізація сесії."""
-        try:
-            self.chat_session = self.ai_service.start_goal_chat()
-            self.append_message("AI", "Привіт! Я твій помічник з планування. Опиши, чого ти хочеш досягти? 🎯")
-        except Exception as e:
-            self.append_message("System", f"Помилка запуску AI: {e}")
-            self.input_field.setEnabled(False)
+    def add_system_widget(self, widget):
+        """Додає віджет (кнопку) в потік чату."""
+        container = QHBoxLayout()
+        container.addStretch()
+        container.addWidget(widget)
+        container.addStretch()
+        self.chat_layout.addLayout(container)
+        self.scroll_to_bottom()
+
+    def scroll_to_bottom(self):
+        QTimer.singleShot(50, lambda: self.scroll_area.verticalScrollBar().setValue(
+            self.scroll_area.verticalScrollBar().maximum()
+        ))
 
     def send_message(self):
-        text = self.input_field.toPlainText().strip()
+        text = self.text_input.toPlainText().strip()
         if not text: return
 
-        self.append_message("Ви", text)
-        self.input_field.clear()
-        self.input_field.setEnabled(False)
-        self.btn_send.setEnabled(False)
-        self.loading_bar.show()
+        if not self.ai_service:
+            QMessageBox.warning(self, "Помилка", "AI сервіс недоступний.")
+            return
 
-        # Запускаємо в окремому потоці
+        self.add_message(text, is_user=True)
+        self.text_input.clear()
+        self.text_input.adjust_height()
+
+        # Блокування
+        self.text_input.setReadOnly(True)
+        self.btn_send.setEnabled(False)
+        self.loading_bar.setVisible(True)
+
         self.worker = AIChatWorker(self.ai_service, self.chat_session, text)
-        self.worker.response_received.connect(self.on_ai_response)
+        self.worker.response_received.connect(self.on_response)
         self.worker.start()
 
-    def on_ai_response(self, text, json_data):
-        self.loading_bar.hide()
-        self.input_field.setEnabled(True)
+    def on_response(self, text, json_data):
+        self.loading_bar.setVisible(False)
+        # 2. Розблоковуємо ввід, щоб можна було правити ціль далі
+        self.text_input.setReadOnly(False)
         self.btn_send.setEnabled(True)
-        self.input_field.setFocus()
+        self.text_input.setFocus()
 
-        # Якщо AI надіслав просто текст
-        if not json_data:
-            self.append_message("AI", text)
-        else:
-            # Якщо AI надіслав JSON (ціль сформована)
-            self.generated_goal_data = json_data
+        self.add_message(text, is_user=False)
 
-            # --- ФОРМУЄМО ДЕТАЛЬНИЙ ПЕРЕГЛЯД ---
-            subgoals_html = ""
-            for i, sub in enumerate(json_data.get('subgoals', []), 1):
-                subgoals_html += (
-                    f"<div style='margin-bottom: 5px; margin-left: 10px;'>"
-                    f"<b>{i}. {sub.get('title')}</b><br>"
-                    f"<span style='color: #aaaaaa; font-size: 11px;'>{sub.get('description')}</span>"
-                    f"</div>"
-                )
+        # 1. Якщо прийшов JSON (ціль готова) - показуємо кнопку
+        if json_data:
+            btn_accept = QPushButton(f"✅ Додати ціль: {json_data.get('title', 'Ціль')}")
+            btn_accept.setObjectName("AcceptBtn")
+            btn_accept.setCursor(Qt.PointingHandCursor)
+            # Прив'язуємо дані до кнопки через лямбду
+            btn_accept.clicked.connect(lambda: self.create_goal_from_json(json_data))
+            self.add_system_widget(btn_accept)
 
-            summary = (
-                f"🎉 <b>План готовий! Перевірте деталі:</b><br><hr>"
-                f"<b>Назва:</b> <span style='font-size: 14px; color: #f1c40f;'>{json_data.get('title')}</span><br>"
-                f"<b>Опис:</b> {json_data.get('description')}<br>"
-                f"<b>Складність:</b> {json_data.get('difficulty')}<br>"
-                f"<b>Дедлайн через:</b> {json_data.get('deadline_days')} днів<br>"
-                f"<hr><b>📋 Підцілі:</b><br>{subgoals_html}<br><hr>"
-                f"<i>Якщо все вірно, натисніть кнопку внизу. Або напишіть, що виправити.</i>"
-            )
-
-            self.chat_area.append(summary)
-            self.chat_area.verticalScrollBar().setValue(self.chat_area.verticalScrollBar().maximum())
-
-            # Вмикаємо кнопку додавання
-            self.btn_add.setEnabled(True)
-            self.btn_add.setText(f"✅ Зберегти цю ціль")
-
-            # НЕ БЛОКУЄМО ввід, щоб можна було правити
-            self.input_field.setPlaceholderText("Напишіть сюди, якщо хочете щось змінити...")
-            self.input_field.setEnabled(True)
-            self.input_field.setFocus()
-
-    def append_message(self, sender, text):
-        color = "#3498db" if sender == "AI" else "#2ecc71"
-        align = "left" if sender == "AI" else "right"
-
-        formatted_text = text.replace("\n", "<br>")
-
-        msg_html = f"""
-        <div style='text-align: {align}; margin-bottom: 10px;'>
-            <span style='color: {color}; font-weight: bold;'>{sender}:</span><br>
-            <span style='font-size: 13px;'>{formatted_text}</span>
-        </div>
-        """
-        self.chat_area.append(msg_html)
-        self.chat_area.verticalScrollBar().setValue(self.chat_area.verticalScrollBar().maximum())
-
-    def finalize_goal(self):
-        if not self.generated_goal_data: return
-
+    def create_goal_from_json(self, data):
         try:
-            data = self.generated_goal_data
+            # Парсинг складності
+            diff_str = data.get("difficulty", "MEDIUM").upper()
+            priority = GoalPriority.MEDIUM
+            for p in GoalPriority:
+                if p.value == diff_str or p.name == diff_str:
+                    priority = p
+                    break
 
-            # 1. Парсинг Difficulty
-            diff_str = data.get("difficulty", "EASY").upper()
-            difficulty = Difficulty.EASY
-            if diff_str == "MEDIUM":
-                difficulty = Difficulty.MEDIUM
-            elif diff_str == "HARD":
-                difficulty = Difficulty.HARD
-            elif diff_str == "EPIC":
-                difficulty = Difficulty.EPIC
+            # Дедлайн
+            deadline = None
+            if "deadline_days" in data:
+                days = int(data.get("deadline_days", 7))
+                deadline = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
-            # 2. Розрахунок дедлайну
-            days = int(data.get("deadline_days", 7))
-            deadline = datetime.now() + timedelta(days=days)
-
-            # 3. Створення цілі
-            new_goal = self.main_service.create_goal(
+            # Створення
+            new_goal = LearningGoal(
                 title=data.get("title", "Нова ціль"),
                 description=data.get("description", ""),
                 deadline=deadline,
-                difficulty=difficulty
+                priority=priority,
+                user_id=self.user_id
             )
+            self.storage.save_goal(new_goal)
 
-            # 4. Додавання підцілей
+            # Підцілі
             subgoals = data.get("subgoals", [])
             for sub in subgoals:
-                new_sub = SubGoal(title=sub.get("title"), description=sub.get("description", ""))
-                new_goal.add_subgoal(new_sub)
+                new_sub = SubGoal(
+                    title=sub.get("title", "Step"),
+                    description=sub.get("description", ""),
+                    goal_id=new_goal.id
+                )
+                self.storage.save_subgoal(new_sub)
 
-            # Зберігаємо підцілі
-            self.main_service.storage.save_goal(new_goal, self.main_service.hero_id)
-
-            QMessageBox.information(self, "Успіх", "Ціль успішно створена з допомогою AI!")
-            self.accept()  # Закриваємо діалог
+            QMessageBox.information(self, "Успіх", "Ціль успішно додана!")
+            self.accept()
 
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося створити ціль: {e}")
