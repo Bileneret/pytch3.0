@@ -1,16 +1,18 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QCheckBox, QHBoxLayout, QPushButton, QInputDialog, QMessageBox,
-    QLineEdit, QTextEdit, QAbstractItemView, QWidget
+    QHBoxLayout, QPushButton, QMessageBox, QLineEdit, QTextEdit,
+    QAbstractItemView, QWidget, QProgressBar, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
 from src.models import SubGoal
-from src.logic import GoalService
-from src.logic.ai_service import AIService
+
+try:
+    from src.logic.ai_service import AIService
+except ImportError:
+    AIService = None
 
 
 class AIWorker(QThread):
-    """Потік для виконання запиту до AI без зависання інтерфейсу."""
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
@@ -21,307 +23,231 @@ class AIWorker(QThread):
         self.difficulty = difficulty
 
     def run(self):
+        if not AIService:
+            self.error.emit("AI Service не знайдено або не налаштовано.")
+            return
+
         try:
             service = AIService()
-            # Передаємо складність у сервіс
-            subgoals = service.generate_subgoals(self.goal_title, self.goal_desc, self.difficulty)
-            self.finished.emit(subgoals)
+            subgoals_data = service.generate_subgoals(self.goal_title, self.goal_desc, self.difficulty)
+            self.finished.emit(subgoals_data)
         except Exception as e:
             self.error.emit(str(e))
 
 
 class SubGoalInputDialog(QDialog):
-    """Кастомний діалог для додавання/редагування підцілі (Назва + Опис)."""
+    """Діалог для додавання/редагування підцілі."""
 
     def __init__(self, parent=None, title_text="", desc_text=""):
         super().__init__(parent)
         self.setWindowTitle("Підціль")
-        self.resize(500, 400)
+        self.resize(400, 300)
 
-        self.layout = QVBoxLayout(self)
-        self.layout.setSpacing(10)
+        self.setStyleSheet("""
+            QDialog { background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI'; }
+            QLabel { color: #90caf9; font-weight: bold; font-size: 14px; margin-top: 10px; }
+            QLineEdit, QTextEdit { 
+                background-color: #172a45; 
+                color: white; 
+                border: 1px solid #1e4976; 
+                padding: 8px; 
+                border-radius: 6px; 
+            }
+            QLineEdit:focus, QTextEdit:focus { border: 1px solid #3b82f6; }
 
-        # Назва
-        self.layout.addWidget(QLabel("Назва:"))
+            QPushButton { 
+                background-color: #1d4ed8; 
+                color: white; 
+                border: 1px solid #3b82f6;
+                padding: 8px 16px; 
+                border-radius: 6px; 
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+            QPushButton#CancelBtn { background-color: #1e293b; border: 1px solid #475569; color: #cbd5e1; }
+            QPushButton#CancelBtn:hover { background-color: #334155; }
+        """)
+
+        layout = QVBoxLayout()
+
+        layout.addWidget(QLabel("Назва:"))
         self.title_input = QLineEdit(title_text)
-        self.title_input.setStyleSheet("font-size: 14px; font-weight: bold; padding: 5px;")
-        self.layout.addWidget(self.title_input)
+        layout.addWidget(self.title_input)
 
-        # Опис
-        self.layout.addWidget(QLabel("Опис (опціонально):"))
+        layout.addWidget(QLabel("Опис:"))
         self.desc_input = QTextEdit()
         self.desc_input.setPlainText(desc_text)
-        self.desc_input.setStyleSheet("font-size: 12px; padding: 5px;")
-        self.layout.addWidget(self.desc_input)
+        layout.addWidget(self.desc_input)
 
-        # Кнопки
-        btn_box = QHBoxLayout()
-        btn_ok = QPushButton("Зберегти")
-        btn_ok.setCursor(Qt.PointingHandCursor)
-        btn_ok.setStyleSheet(
-            "background-color: #27ae60; color: white; padding: 8px; border-radius: 4px; font-weight: bold;")
-        btn_ok.clicked.connect(self.accept)
+        btns_layout = QHBoxLayout()
+        btn_save = QPushButton("Зберегти")
+        btn_save.clicked.connect(self.accept)
 
         btn_cancel = QPushButton("Скасувати")
-        btn_cancel.setCursor(Qt.PointingHandCursor)
-        btn_cancel.setStyleSheet("background-color: #555; color: white; padding: 8px; border-radius: 4px;")
+        btn_cancel.setObjectName("CancelBtn")
         btn_cancel.clicked.connect(self.reject)
 
-        btn_box.addWidget(btn_ok)
-        btn_box.addWidget(btn_cancel)
-        self.layout.addLayout(btn_box)
+        btns_layout.addStretch()
+        btns_layout.addWidget(btn_cancel)
+        btns_layout.addWidget(btn_save)
+
+        layout.addLayout(btns_layout)
+        self.setLayout(layout)
 
     def get_data(self):
-        return self.title_input.text(), self.desc_input.toPlainText()
-
-
-class SubGoalItemWidget(QWidget):
-    """
-    Кастомний віджет для елемента списку.
-    """
-
-    def __init__(self, item, list_widget, subgoal, on_toggle):
-        super().__init__()
-        self.item = item
-        self.list_widget = list_widget
-        self.subgoal = subgoal
-        self.on_toggle = on_toggle
-
-        # Основний вертикальний лейаут
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(2)
-
-        # Рядок 1: Чекбокс + Назва
-        row1 = QHBoxLayout()
-        row1.setSpacing(10)
-
-        self.cb = QCheckBox()
-        self.cb.setChecked(subgoal.is_completed)
-        self.cb.setFixedWidth(20)
-        self.cb.stateChanged.connect(self._cb_changed)
-
-        self.title_lbl = QLabel(subgoal.title)
-        self.title_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: white;")
-        self.title_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-
-        row1.addWidget(self.cb)
-        row1.addWidget(self.title_lbl)
-        row1.addStretch()
-
-        layout.addLayout(row1)
-
-        # Рядок 2: Опис
-        if subgoal.description:
-            self.desc_lbl = QLabel(subgoal.description)
-            self.desc_lbl.setWordWrap(True)
-            self.desc_lbl.setStyleSheet("font-size: 12px; color: #aaaaaa; margin-left: 30px;")
-            self.desc_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            layout.addWidget(self.desc_lbl)
-
-    def _cb_changed(self, state):
-        self.on_toggle(self.subgoal, state)
-
-    def mousePressEvent(self, event):
-        modifiers = event.modifiers()
-        if modifiers & Qt.ControlModifier:
-            self.item.setSelected(not self.item.isSelected())
-        else:
-            self.list_widget.clearSelection()
-            self.item.setSelected(True)
-        self.list_widget.setFocus()
-        super().mousePressEvent(event)
+        return self.title_input.text().strip(), self.desc_input.toPlainText().strip()
 
 
 class SubgoalsDialog(QDialog):
-    """Діалог управління підцілями з автовиконанням батьківської цілі."""
-
-    def __init__(self, parent, service: GoalService, goal):
+    def __init__(self, parent, goal_id, storage):
         super().__init__(parent)
-        self.service = service
-        self.goal = goal
-        self.setWindowTitle(f"Підцілі: {goal.title}")
+        self.goal_id = goal_id
+        self.storage = storage
+        self.parent_window = parent
 
-        self.resize(700, 700)
+        goals = self.storage.get_goals(self.parent_window.user_id)
+        self.goal = next((g for g in goals if g.id == goal_id), None)
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        self.setWindowTitle("Управління підцілями")
+        self.resize(500, 600)
+        self.init_ui()
+        self.update_list()
 
-        lbl_header = QLabel("Список підцілей:")
-        lbl_header.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 5px;")
-        layout.addWidget(lbl_header)
+    def init_ui(self):
+        self.setStyleSheet("""
+            QDialog { background-color: #0b0f19; color: white; font-family: 'Segoe UI'; }
+
+            QListWidget { 
+                background-color: #111827; 
+                border: 2px solid #1e3a8a; 
+                border-radius: 8px; 
+                padding: 5px;
+                outline: none;
+            }
+            QListWidget::item { 
+                background-color: #1e293b;
+                border-bottom: 1px solid #334155; 
+                margin-bottom: 5px; 
+                border-radius: 4px;
+            }
+            QListWidget::item:selected { 
+                background-color: #1d4ed8; 
+                border: 1px solid #60a5fa; 
+            }
+
+            QPushButton { 
+                background-color: #1e3a8a; 
+                color: white; 
+                border: 1px solid #3b82f6; 
+                border-radius: 6px; 
+                padding: 9px 12px; 
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+
+            QPushButton#AiBtn { 
+                background-color: #7c3aed; 
+                border-color: #8b5cf6; 
+            }
+            QPushButton#AiBtn:hover { background-color: #8b5cf6; }
+
+            QPushButton#DelBtn { 
+                background-color: #7f1d1d; 
+                border-color: #ef4444; 
+            }
+            QPushButton#DelBtn:hover { background-color: #b91c1c; }
+
+            QProgressBar {
+                border: 2px solid #1e3a8a;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #0f172a;
+            }
+            QProgressBar::chunk { background-color: #7c3aed; }
+        """)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        header = QLabel(f"Підцілі для: {self.goal.title if self.goal else '...'}")
+        header.setStyleSheet("color: #90caf9; font-size: 16px; font-weight: bold;")
+        header.setWordWrap(True)
+        layout.addWidget(header)
 
         self.list_widget = QListWidget()
         self.list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                background-color: #2b2b2b;
-                border: 1px solid #555;
-                border-radius: 5px;
-                padding: 5px;
-                color: white;
-            }
-            QListWidget::item {
-                border-bottom: 1px solid #3a3a3a;
-            }
-            QListWidget::item:selected {
-                background-color: #444;
-                border-radius: 3px;
-            }
-        """)
+        self.list_widget.itemDoubleClicked.connect(self.edit_subgoal)
         layout.addWidget(self.list_widget)
 
-        self.update_list()
+        self.loading_bar = QProgressBar()
+        self.loading_bar.setRange(0, 0)
+        self.loading_bar.setVisible(False)
+        self.loading_bar.setFixedHeight(10)
+        layout.addWidget(self.loading_bar)
 
-        # Кнопки управління
-        btn_box = QHBoxLayout()
-        btn_box.setSpacing(10)
+        btns_layout = QHBoxLayout()
 
-        base_btn_style = """
-            QPushButton { 
-                border-radius: 4px; 
-                padding: 8px 12px; 
-                font-weight: bold; 
-                color: white;
-            }
-        """
-
-        # Додати - Зелена
-        btn_add = QPushButton("➕ Додати")
-        btn_add.setCursor(Qt.PointingHandCursor)
-        btn_add.setStyleSheet(base_btn_style + """
-            QPushButton { background-color: #27ae60; }
-            QPushButton:hover { background-color: #2ecc71; }
-        """)
+        btn_add = QPushButton("Додати")
         btn_add.clicked.connect(self.add_subgoal)
-        btn_box.addWidget(btn_add)
 
-        # AI - Синя
-        self.btn_ai = QPushButton("🤖 AI генерація")
-        self.btn_ai.setCursor(Qt.PointingHandCursor)
-        self.btn_ai.setStyleSheet(base_btn_style + """
-            QPushButton { background-color: #3498db; }
-            QPushButton:hover { background-color: #2980b9; }
-        """)
-        self.btn_ai.clicked.connect(self.on_ai_add)
-        btn_box.addWidget(self.btn_ai)
-
-        # Редагувати - Жовта
-        btn_edit = QPushButton("✏️ Редагувати")
-        btn_edit.setCursor(Qt.PointingHandCursor)
-        btn_edit.setStyleSheet(base_btn_style + """
-            QPushButton { background-color: #f1c40f; color: #2c3e50; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
+        btn_edit = QPushButton("Редагувати")
         btn_edit.clicked.connect(self.edit_subgoal)
-        btn_box.addWidget(btn_edit)
 
-        # Видалити - Червона
-        btn_del = QPushButton("❌ Видалити")
-        btn_del.setCursor(Qt.PointingHandCursor)
-        btn_del.setStyleSheet(base_btn_style + """
-            QPushButton { background-color: #c0392b; }
-            QPushButton:hover { background-color: #e74c3c; }
-        """)
+        btn_ai = QPushButton("AI Генерація")
+        btn_ai.setObjectName("AiBtn")
+        btn_ai.clicked.connect(self.generate_ai_subgoals)
+
+        btn_del = QPushButton("Видалити")
+        btn_del.setObjectName("DelBtn")
         btn_del.clicked.connect(self.delete_subgoal)
-        btn_box.addWidget(btn_del)
 
-        layout.addLayout(btn_box)
+        btns_layout.addWidget(btn_add)
+        btns_layout.addWidget(btn_edit)
+        btns_layout.addWidget(btn_ai)
+        btns_layout.addWidget(btn_del)
 
-        # Закрити
+        layout.addLayout(btns_layout)
+
         btn_close = QPushButton("Закрити")
-        btn_close.setCursor(Qt.PointingHandCursor)
-        btn_close.setStyleSheet("""
-            QPushButton { 
-                background-color: #555; 
-                color: white; 
-                border-radius: 4px; 
-                padding: 8px; 
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #666; }
-        """)
+        btn_close.setStyleSheet("background-color: transparent; border: 1px solid #475569; margin-top: 10px;")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close)
 
-    def on_ai_add(self):
-        """Запуск AI генерації."""
-        self.btn_ai.setEnabled(False)
-        self.btn_ai.setText("⏳ Думаю...")
-
-        # Передаємо title, description та difficulty
-        self.ai_worker = AIWorker(self.goal.title, self.goal.description, self.goal.difficulty)
-        self.ai_worker.finished.connect(self.on_ai_success)
-        self.ai_worker.error.connect(self.on_ai_error)
-        self.ai_worker.start()
-
-    def on_ai_success(self, subgoals_data):
-        """AI успішно повернув дані."""
-        self.btn_ai.setEnabled(True)
-        self.btn_ai.setText("🤖 AI генерація")
-
-        if not subgoals_data:
-            QMessageBox.information(self, "AI", "AI не зміг придумати підцілі.")
-            return
-
-        count = len(subgoals_data)
-        reply = QMessageBox.question(
-            self, "AI Пропозиція",
-            f"AI пропонує додати {count} підцілей.\nДодати їх до списку?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            for item in subgoals_data:
-                new_sub = SubGoal(title=item.get('title', 'Без назви'), description=item.get('description', ''))
-                self.goal.add_subgoal(new_sub)
-
-            self.goal.is_completed = False
-            self.service.storage.save_goal(self.goal, self.service.hero_id)
-            self.update_list()
-            QMessageBox.information(self, "Успіх", "Підцілі успішно додано!")
-
-    def on_ai_error(self, error_msg):
-        """Помилка AI."""
-        self.btn_ai.setEnabled(True)
-        self.btn_ai.setText("🤖 AI генерація")
-        QMessageBox.critical(self, "Помилка AI", f"Щось пішло не так:\n{error_msg}\n\nПеревірте API ключ в .env файлі.")
+        self.setLayout(layout)
 
     def update_list(self):
         self.list_widget.clear()
-        for sub in self.goal.subgoals:
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, sub)
-            widget = SubGoalItemWidget(item, self.list_widget, sub, self.toggle_subgoal)
-            item.setSizeHint(widget.sizeHint())
-            self.list_widget.addItem(item)
-            self.list_widget.setItemWidget(item, widget)
+        subgoals = self.storage.get_subgoals(self.goal_id)
 
-    def toggle_subgoal(self, subgoal, state):
-        subgoal.is_completed = (state == Qt.Checked)
-        if self.goal.subgoals and all(s.is_completed for s in self.goal.subgoals):
-            if not self.goal.is_completed:
-                self.goal.is_completed = True
-        self.service.storage.save_goal(self.goal, self.service.hero_id)
+        for sub in subgoals:
+            display_text = f"{sub.title}"
+            if sub.description:
+                display_text += f"\n   ⤷ {sub.description[:50]}..." if len(
+                    sub.description) > 50 else f"\n   ⤷ {sub.description}"
+
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.UserRole, sub)
+
+            if sub.is_completed:
+                item.setForeground(Qt.gray)
+
+            self.list_widget.addItem(item)
 
     def add_subgoal(self):
         dialog = SubGoalInputDialog(self)
         if dialog.exec_():
             title, desc = dialog.get_data()
             if title:
-                new_sub = SubGoal(title=title, description=desc)
-                self.goal.add_subgoal(new_sub)
-                self.goal.is_completed = False
-                self.service.storage.save_goal(self.goal, self.service.hero_id)
+                new_sub = SubGoal(title=title, description=desc, goal_id=self.goal_id)
+                self.storage.save_subgoal(new_sub)
                 self.update_list()
 
     def edit_subgoal(self):
         selected_items = self.list_widget.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "Увага", "Оберіть підціль для редагування")
-            return
-        if len(selected_items) > 1:
-            QMessageBox.warning(self, "Увага", "Редагування можливе лише по одній підцілі.")
             return
 
         item = selected_items[0]
@@ -333,7 +259,7 @@ class SubgoalsDialog(QDialog):
             if title:
                 sub.title = title
                 sub.description = desc
-                self.service.storage.save_goal(self.goal, self.service.hero_id)
+                self.storage.save_subgoal(sub)
                 self.update_list()
 
     def delete_subgoal(self):
@@ -343,13 +269,50 @@ class SubgoalsDialog(QDialog):
             return
 
         count = len(selected_items)
-        msg = f"Видалити {count} підціль?" if count == 1 else f"Видалити {count} підцілей?"
-        reply = QMessageBox.question(self, "Видалити", msg, QMessageBox.Yes | QMessageBox.No)
+        reply = QMessageBox.question(self, "Видалити", f"Видалити {count} підцілей?",
+                                     QMessageBox.Yes | QMessageBox.No)
 
         if reply == QMessageBox.Yes:
-            subs_to_delete = [item.data(Qt.UserRole) for item in selected_items]
-            for sub in subs_to_delete:
-                if sub in self.goal.subgoals:
-                    self.goal.subgoals.remove(sub)
-            self.service.storage.save_goal(self.goal, self.service.hero_id)
+            for item in selected_items:
+                sub = item.data(Qt.UserRole)
+                self.storage.delete_subgoal(sub.id)
             self.update_list()
+
+    def generate_ai_subgoals(self):
+        if not self.goal: return
+        if not AIService:
+            QMessageBox.information(self, "AI", "AI сервіс недоступний (модуль не знайдено).")
+            return
+
+        self.loading_bar.setVisible(True)
+        self.setEnabled(False)
+
+        difficulty = self.goal.priority.value if hasattr(self.goal, 'priority') else "Середній"
+
+        self.thread = AIWorker(self.goal.title, self.goal.description, difficulty)
+        self.thread.finished.connect(self.on_ai_finished)
+        self.thread.error.connect(self.on_ai_error)
+        self.thread.start()
+
+    def on_ai_finished(self, subgoals_data):
+        self.loading_bar.setVisible(False)
+        self.setEnabled(True)
+
+        if not subgoals_data:
+            QMessageBox.information(self, "AI", "Не вдалося згенерувати підцілі.")
+            return
+
+        for data in subgoals_data:
+            title = data.get('title', 'AI Step') if isinstance(data, dict) else str(data)
+            desc = data.get('description', '') if isinstance(data, dict) else ""
+
+            new_sub = SubGoal(title=title, description=desc, goal_id=self.goal_id)
+            self.storage.save_subgoal(new_sub)
+
+        self.update_list()
+        QMessageBox.information(self, "Успіх", f"Додано {len(subgoals_data)} кроків від ШІ!")
+
+    def on_ai_error(self, err_msg):
+        self.loading_bar.setVisible(False)
+        self.setEnabled(True)
+        QMessageBox.warning(self, "Помилка AI", err_msg)

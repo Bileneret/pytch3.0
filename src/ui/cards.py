@@ -1,315 +1,261 @@
-from datetime import datetime
-from PyQt5.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QProgressBar, QWidget, QCheckBox, QGraphicsOpacityEffect
-)
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from src.models import Difficulty
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+                             QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor
+from ..models import GoalStatus
+from datetime import date
 
 
 class QuestCard(QFrame):
-    def __init__(self, goal, on_complete, on_delete, on_edit, on_subgoals, on_subgoal_checked):
+    """
+    Картка для відображення цілі (квесту).
+    """
+
+    def __init__(self, goal, parent_tab):
         super().__init__()
         self.goal = goal
-        self.on_edit = on_edit
-        self.on_subgoals = on_subgoals
-        self.on_subgoal_checked = on_subgoal_checked
-        self.setup_ui(on_complete, on_delete)
+        self.parent_tab = parent_tab  # Посилання на вкладку (QuestTab)
+        self.storage = parent_tab.mw.storage  # Доступ до БД через головне вікно
+        self.init_ui()
 
-    def setup_ui(self, on_complete, on_delete):
-        # ... (Код стилизации без изменений) ...
-        if self.goal.is_completed:
-            border = "#555555"
-            title_col = "#7f8c8d"
-            icon = "✅"
-        else:
-            title_col = "white"
-            icon = "⚔️"
-            colors = {
-                Difficulty.EASY: "#2ecc71",
-                Difficulty.MEDIUM: "#3498db",
-                Difficulty.HARD: "#e67e22",
-                Difficulty.EPIC: "#9b59b6"
+    def init_ui(self):
+        # Стиль картки
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #1e293b;
+                border: 2px solid #1e3a8a;
+                border-radius: 8px;
             }
-            border = colors.get(self.goal.difficulty, "#bdc3c7")
-
-            if self.goal.penalty_applied:
-                border = "#e74c3c"
-
-        self.setStyleSheet(f"""
-            QFrame {{
-                border: 1px solid {border};
-                border-left: 5px solid {border};
-                border-radius: 6px;
-            }}
-            QLabel {{ border: none; background: transparent; }}
+            QLabel { border: none; background-color: transparent; color: #e0e0e0; }
+            QCheckBox { background-color: transparent; color: #e0e0e0; font-size: 13px; }
+            QProgressBar {
+                border: 1px solid #1e4976;
+                border-radius: 4px;
+                background-color: #0f172a;
+                text-align: center;
+                color: white;
+                font-size: 10px;
+                height: 12px;
+            }
+            QProgressBar::chunk { background-color: #2563eb; border-radius: 3px; }
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(8)
 
-        # 1. Header
-        header = QHBoxLayout()
-        lbl_title = QLabel(f"{icon} {self.goal.title}")
-        lbl_title.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {title_col};")
-        header.addWidget(lbl_title, stretch=1)
+        # --- HEADER ---
+        header_layout = QHBoxLayout()
+        status_icon = "🔵" if self.goal.status == GoalStatus.PLANNED else "✅"
+        title_lbl = QLabel(f"{status_icon} {self.goal.title}")
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: white;")
 
-        base_btn_style = """
+        delete_btn = QPushButton("✖")
+        delete_btn.setFixedSize(24, 24)
+        delete_btn.setStyleSheet("""
+            QPushButton { background-color: transparent; color: #ef5350; border: none; font-size: 16px; font-weight: bold; }
+            QPushButton:hover { color: #ff8a80; }
+        """)
+        delete_btn.clicked.connect(self.confirm_delete)
+
+        header_layout.addWidget(title_lbl, 1)
+        header_layout.addWidget(delete_btn)
+        layout.addLayout(header_layout)
+
+        # --- DESCRIPTION ---
+        if self.goal.description:
+            desc_lbl = QLabel(self.goal.description)
+            desc_lbl.setWordWrap(True)  # ВАЖЛИВО: Перенесення слів
+            desc_lbl.setStyleSheet("color: #cbd5e1; font-size: 14px; margin-bottom: 5px;")
+            # ВИПРАВЛЕНО: Використання констант QSizePolicy
+            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            layout.addWidget(desc_lbl)
+
+        # --- PROGRESS BAR ---
+        self.subgoals = self.storage.get_subgoals(self.goal.id)
+        total_subs = len(self.subgoals)
+        completed_subs = sum(1 for s in self.subgoals if s.is_completed)
+
+        if total_subs > 0:
+            self.progress_bar = QProgressBar()
+            self.progress_bar.setRange(0, total_subs)
+            self.progress_bar.setValue(completed_subs)
+            self.progress_bar.setFormat(f"%p% ({completed_subs}/{total_subs})")
+            layout.addWidget(self.progress_bar)
+
+        # --- DETAILS ---
+        details_text = f"Пріоритет: {self.goal.priority.value}"
+        if self.goal.deadline:
+            details_text += f"  |  Дедлайн: {self.goal.deadline}"
+        details_lbl = QLabel(details_text)
+        details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 2px;")
+        layout.addWidget(details_lbl)
+
+        # --- SUBGOALS LIST ---
+        if self.subgoals:
+            sub_container = QFrame()
+            sub_container.setStyleSheet("background-color: #111827; border-radius: 6px; margin-top: 8px; border: none;")
+            sub_layout = QVBoxLayout(sub_container)
+            sub_layout.setContentsMargins(10, 10, 10, 10)
+            sub_layout.setSpacing(12)  # Відступ між підцілями
+
+            for sub in self.subgoals:
+                row = QWidget()
+                r_layout = QVBoxLayout(row)
+                r_layout.setContentsMargins(0, 0, 0, 0)
+                r_layout.setSpacing(4)
+
+                # Checkbox row
+                top_row = QHBoxLayout()
+                chk = QCheckBox(sub.title)
+                chk.setChecked(sub.is_completed)
+                chk.stateChanged.connect(lambda state, s=sub: self.toggle_subgoal(state, s))
+                top_row.addWidget(chk)
+                top_row.addStretch()
+                r_layout.addLayout(top_row)
+
+                # Description row
+                if sub.description:
+                    sub_desc = QLabel(sub.description)
+                    sub_desc.setWordWrap(True)  # ВАЖЛИВО: Текст підцілі теж переноситься
+                    sub_desc.setStyleSheet("color: #94a3b8; font-size: 12px; margin-left: 24px;")
+                    # Також додаємо SizePolicy для коректного відображення довгих описів підцілей
+                    sub_desc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+                    r_layout.addWidget(sub_desc)
+
+                sub_layout.addWidget(row)
+            layout.addWidget(sub_container)
+
+        layout.addSpacing(5)
+
+        # --- BUTTONS ---
+        btn_layout = QHBoxLayout()
+        btn_style = """
             QPushButton { 
-                border: none; 
-                border-radius: 4px; 
-                padding: 5px 10px; 
-                font-weight: bold; 
-                font-size: 11px;
+                background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; 
+                border-radius: 6px; padding: 9px 12px; font-size: 13px; font-weight: 500;
             }
+            QPushButton:hover { background-color: #2563eb; }
         """
 
-        # Кнопки
-        btn_subs = QPushButton("📝 Підцілі")
-        btn_subs.setCursor(Qt.PointingHandCursor)
-        btn_subs.setStyleSheet(base_btn_style + """
-            QPushButton { background-color: #3498db; color: white; }
-            QPushButton:hover { background-color: #2980b9; }
-        """)
-        btn_subs.clicked.connect(lambda: self.on_subgoals(self.goal))
-        header.addWidget(btn_subs)
+        btn_subgoals = QPushButton("Підцілі")
+        btn_subgoals.setStyleSheet(btn_style)
+        btn_subgoals.clicked.connect(self.open_subgoals)
 
-        btn_edit = QPushButton("✏️ Редагувати")
-        btn_edit.setCursor(Qt.PointingHandCursor)
-        btn_edit.setStyleSheet(base_btn_style + """
-            QPushButton { background-color: #f1c40f; color: #2c3e50; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
-        btn_edit.clicked.connect(lambda: self.on_edit(self.goal))
-        header.addWidget(btn_edit)
+        btn_edit = QPushButton("Змінити ціль")
+        btn_edit.setStyleSheet(btn_style)
+        btn_edit.clicked.connect(self.edit_goal)
 
-        if not self.goal.is_completed:
-            btn_ok = QPushButton("✅ Завершити")
-            btn_ok.setCursor(Qt.PointingHandCursor)
-            btn_ok.setStyleSheet(base_btn_style + """
-                QPushButton { background-color: #27ae60; color: white; }
-                QPushButton:hover { background-color: #2ecc71; }
-            """)
-            btn_ok.clicked.connect(lambda: on_complete(self.goal))
-            header.addWidget(btn_ok)
-
-        btn_del = QPushButton("✕")
-        btn_del.setCursor(Qt.PointingHandCursor)
-        btn_del.setFixedSize(24, 24)
-        btn_del.setStyleSheet("""
+        btn_complete = QPushButton("Завершити")
+        btn_complete.setStyleSheet("""
             QPushButton { 
-                color: #e74c3c; 
-                background-color: transparent;
-                font-weight: bold; 
-                font-size: 14px; 
-                border: none;
-            } 
-            QPushButton:hover { background-color: #3e3e3e; border-radius: 12px; }
+                background-color: #064e3b; color: white; border: 1px solid #10b981; 
+                border-radius: 6px; padding: 9px 12px; font-size: 13px; font-weight: 500;
+            }
+            QPushButton:hover { background-color: #065f46; }
         """)
-        btn_del.clicked.connect(lambda: on_delete(self.goal))
-        header.addWidget(btn_del)
-        layout.addLayout(header)
+        btn_complete.clicked.connect(self.complete_goal)
 
-        # 2. Опис
-        if self.goal.description:
-            lbl_desc = QLabel(self.goal.description)
-            lbl_desc.setWordWrap(True)
-            lbl_desc.setStyleSheet("color: #aaa; font-size: 12px; font-style: italic; margin-bottom: 5px;")
-            layout.addWidget(lbl_desc)
+        if self.goal.status == GoalStatus.COMPLETED:
+            btn_complete.setVisible(False)
+            btn_edit.setVisible(False)
 
-        # 3. Підцілі
-        if self.goal.subgoals:
-            subs_container = QWidget()
-            subs_container.setStyleSheet("background-color: #2d2d2d; border-radius: 4px;")
-            subs_layout = QVBoxLayout(subs_container)
-            subs_layout.setContentsMargins(5, 5, 5, 5)
-            subs_layout.setSpacing(2)
+        btn_layout.addWidget(btn_subgoals)
+        btn_layout.addWidget(btn_edit)
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_complete)
+        layout.addLayout(btn_layout)
 
-            for sub in self.goal.subgoals:
-                cb = QCheckBox(sub.title)
-                cb.setChecked(sub.is_completed)
-                text_style = "text-decoration: line-through; color: #777;" if sub.is_completed else "color: #ddd;"
-                cb.setStyleSheet(f"""
-                    QCheckBox {{ font-size: 12px; {text_style} spacing: 5px; margin-left: 5px; border: none; }}
-                    QCheckBox::indicator {{ width: 14px; height: 14px; }}
-                """)
-                cb.setCursor(Qt.PointingHandCursor)
-                cb.stateChanged.connect(lambda state, s=sub: self.on_subgoal_checked(self.goal, s, state == Qt.Checked))
-                subs_layout.addWidget(cb)
+    def toggle_subgoal(self, state, subgoal):
+        subgoal.is_completed = (state == Qt.Checked)
+        self.storage.save_subgoal(subgoal)
 
-            layout.addWidget(subs_container)
+        # Check auto-complete
+        all_subs = self.storage.get_subgoals(self.goal.id)
+        total = len(all_subs)
+        completed = sum(1 for s in all_subs if s.is_completed)
 
-            # Шкала прогресу
-            progress_val = int(self.goal.calculate_progress())
-            pb = QProgressBar()
-            pb.setValue(progress_val)
-            pb.setFormat("%p%")
-            pb.setTextVisible(True)
-            pb.setFixedHeight(14)
-            pb.setStyleSheet(f"""
-                QProgressBar {{
-                    border: 1px solid #555;
-                    border-radius: 7px;
-                    background-color: #1e1e1e;
-                    color: white;
-                    text-align: center;
-                    font-size: 10px;
-                    font-weight: bold;
-                }}
-                QProgressBar::chunk {{
-                    background-color: {border};
-                    border-radius: 7px;
-                }}
-            """)
-            layout.addWidget(pb)
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.setValue(completed)
+            self.progress_bar.setFormat(f"%p% ({completed}/{total})")
 
-        # 4. Info
-        info = QHBoxLayout()
-        info.addWidget(QLabel(f"{self.goal.difficulty.name}",
-                              styleSheet="font-size: 11px; color: #bdc3c7; border: 1px solid #444; padding: 2px 4px; border-radius: 3px;"))
+        if total > 0 and completed == total and self.goal.status != GoalStatus.COMPLETED:
+            self.complete_goal()
+        elif self.goal.status == GoalStatus.COMPLETED:
+            self.goal.status = GoalStatus.PLANNED
+            self.storage.save_goal(self.goal)
+            self.parent_tab.mw.update_stats(-1)  # Відкат статистики
+            self.parent_tab.update_list()
 
-        created_str = self.goal.created_at.strftime('%d.%m.%Y %H:%M')
-        info.addWidget(QLabel(f"Створено: {created_str}", styleSheet="font-size: 11px; color: #666; margin-left: 5px;"))
-        info.addStretch()
+    def complete_goal(self):
+        self.goal.status = GoalStatus.COMPLETED
+        self.storage.save_goal(self.goal)
+        self.parent_tab.mw.update_stats(1)
+        self.parent_tab.update_list()
 
-        date_col = "#e74c3c" if self.goal.is_overdue() else "#bdc3c7"
-        info.addWidget(QLabel(f"⏳ {self.goal.deadline.strftime('%d.%m.%Y %H:%M')}",
-                              styleSheet=f"font-size: 12px; color: {date_col}; font-weight: bold;"))
-        layout.addLayout(info)
+    def confirm_delete(self):
+        reply = QMessageBox.question(self, 'Видалення', f"Видалити '{self.goal.title}'?",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.storage.delete_goal(self.goal.id)
+            self.parent_tab.update_list()
 
-    def play_highlight_animation(self):
-        """Запускає анімацію підсвічування жовтим кольором, що затухає."""
-        # Створюємо оверлей (віджет поверх картки)
-        self.overlay = QWidget(self)
-        self.overlay.setGeometry(0, 0, self.width(), self.height())
-        # Жовтий колір, напівпрозорий (alpha ~100 з 255)
-        self.overlay.setStyleSheet("background-color: rgba(255, 255, 0, 100); border-radius: 6px;")
-        self.overlay.setAttribute(Qt.WA_TransparentForMouseEvents)  # Пропускати кліки
-        self.overlay.show()
+    def open_subgoals(self):
+        from .subgoals_dialog import SubgoalsDialog
+        dialog = SubgoalsDialog(self.parent_tab.mw, self.goal.id, self.storage)
+        if dialog.exec_():
+            self.parent_tab.update_list()
 
-        # Ефект прозорості для анімації
-        self.opacity_effect = QGraphicsOpacityEffect(self.overlay)
-        self.overlay.setGraphicsEffect(self.opacity_effect)
-
-        # Анімація: Opacity 1.0 -> 0.0
-        self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.anim.setDuration(1000)  # 1 секунда
-        self.anim.setStartValue(1.0)
-        self.anim.setEndValue(0.0)
-        self.anim.setEasingCurve(QEasingCurve.OutQuad)
-
-        # Видаляємо оверлей після завершення
-        self.anim.finished.connect(self.overlay.deleteLater)
-        self.anim.start()
-
-    def resizeEvent(self, event):
-        """Оновлюємо розмір оверлею при зміні розміру картки."""
-        if hasattr(self, 'overlay') and self.overlay:
-            self.overlay.resize(self.size())
-        super().resizeEvent(event)
+    def edit_goal(self):
+        from .edit_goal_dialog import EditGoalDialog
+        dialog = EditGoalDialog(self.parent_tab.mw, self.goal, storage=self.storage)
+        if dialog.exec_():
+            self.parent_tab.update_list()
 
 
 class HabitCard(QFrame):
-    def __init__(self, goal, simulated_now, on_start, on_finish, on_edit, on_delete):
+    """Картка для звички."""
+
+    def __init__(self, habit, parent_tab):
         super().__init__()
-        self.goal = goal
-        self.simulated_now = simulated_now
-        self.on_edit = on_edit
-        self.on_delete = on_delete
-        self.setup_ui(on_start, on_finish)
+        self.habit = habit
+        self.parent_tab = parent_tab
+        self.storage = parent_tab.mw.storage
+        self.init_ui()
 
-    def setup_ui(self, on_start, on_finish):
-        is_future = self.simulated_now.date() < self.goal.start_date.date()
-
-        state_colors = {
-            'pending': "#3498db",
-            'started': "#f1c40f",
-            'finished': "#2ecc71",
-            'failed': "#e74c3c"
-        }
-        color = "#95a5a6" if is_future else state_colors.get(self.goal.daily_state, "#bdc3c7")
-
-        self.setStyleSheet(f"""
-            QFrame {{
-                border: 1px solid #555;
-                border-left: 5px solid {color};
-                border-radius: 6px;
-            }}
-            QLabel {{ border: none; background: transparent; }}
+    def init_ui(self):
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #1e293b;
+                border: 2px solid #1e3a8a;
+                border-radius: 8px;
+            }
+            QLabel { border: none; background-color: transparent; color: #e0e0e0; font-size: 16px; font-weight: bold; }
         """)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        today_str = date.today().isoformat()
+        is_done = (self.habit.last_completed_date == today_str)
 
-        header = QHBoxLayout()
-        lbl_title = QLabel(f"📅 {self.goal.title}")
-        lbl_title.setStyleSheet("font-weight: bold; font-size: 14px; color: white;")
-        header.addWidget(lbl_title)
-        header.addStretch()
+        icon = "🔥" if is_done else "⬜"
+        title = QLabel(f"{icon}  {self.habit.title}")
+        streak = QLabel(f"Серія: {self.habit.streak} днів")
+        streak.setStyleSheet("color: #94a3b8; font-size: 14px; font-weight: normal;")
 
-        btn_edit = QPushButton("✏️ Редагувати")
-        btn_edit.setCursor(Qt.PointingHandCursor)
-        btn_edit.setStyleSheet("""
-            QPushButton { background-color: #f1c40f; color: #2c3e50; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; font-weight: bold; }
-            QPushButton:hover { background-color: #f39c12; }
-        """)
-        btn_edit.clicked.connect(lambda: self.on_edit(self.goal))
-        header.addWidget(btn_edit)
+        if is_done:
+            title.setStyleSheet("color: #4ade80; font-size: 16px; font-weight: bold;")
 
-        btn_del = QPushButton("✕")
-        btn_del.setCursor(Qt.PointingHandCursor)
-        btn_del.setFixedSize(24, 24)
-        btn_del.setStyleSheet("""
-            QPushButton { color: #e74c3c; background-color: transparent; font-weight: bold; font-size: 14px; border: none; } 
-            QPushButton:hover { background-color: #3e3e3e; border-radius: 12px; }
-        """)
-        btn_del.clicked.connect(lambda: self.on_delete(self.goal))
-        header.addWidget(btn_del)
+        layout.addWidget(title)
+        layout.addStretch()
+        layout.addWidget(streak)
 
-        layout.addLayout(header)
-
-        layout.addWidget(QLabel(f"День: {self.goal.current_day}/{self.goal.total_days} | Час: {self.goal.time_frame}",
-                                styleSheet="color: #bdc3c7; font-size: 12px;"))
-
-        if self.goal.description:
-            layout.addWidget(
-                QLabel(self.goal.description, styleSheet="color: #666; font-size: 11px; font-style: italic;"))
-
-        pb = QProgressBar()
-        pb.setValue(int(self.goal.calculate_progress()))
-        pb.setFixedHeight(12)
-        pb.setStyleSheet(f"""
-            QProgressBar {{ border: 1px solid #555; border-radius: 5px; background: #2d2d2d; text-align: center; }} 
-            QProgressBar::chunk {{ background-color: {color}; border-radius: 4px; }}
-        """)
-        layout.addWidget(pb)
-
-        if not self.goal.is_completed:
-            if is_future:
-                layout.addWidget(QLabel(f"⏳ Старт: {self.goal.start_date.strftime('%d.%m')}",
-                                        styleSheet="color: #7f8c8d; font-style: italic;", alignment=Qt.AlignCenter))
-            else:
-                if self.goal.daily_state == 'pending':
-                    btn = QPushButton("Розпочати")
-                    btn.setCursor(Qt.PointingHandCursor)
-                    btn.setStyleSheet("""
-                        QPushButton { background-color: #3498db; color: white; font-weight: bold; border-radius: 4px; padding: 8px; }
-                        QPushButton:hover { background-color: #2980b9; }
-                    """)
-                    btn.clicked.connect(lambda: on_start(self.goal))
-                    layout.addWidget(btn)
-                elif self.goal.daily_state == 'started':
-                    btn = QPushButton("Закінчити")
-                    btn.setCursor(Qt.PointingHandCursor)
-                    btn.setStyleSheet("""
-                        QPushButton { background-color: #f1c40f; color: #2c3e50; font-weight: bold; border-radius: 4px; padding: 8px; }
-                        QPushButton:hover { background-color: #f39c12; }
-                    """)
-                    btn.clicked.connect(lambda: on_finish(self.goal))
-                    layout.addWidget(btn)
-                elif self.goal.daily_state == 'finished':
-                    layout.addWidget(QLabel("На сьогодні все ✅", styleSheet="color: #2ecc71; font-weight: bold;",
-                                            alignment=Qt.AlignCenter))
-                elif self.goal.daily_state == 'failed':
-                    layout.addWidget(QLabel("Пропущено ❌", styleSheet="color: #e74c3c; font-weight: bold;",
-                                            alignment=Qt.AlignCenter))
+    def mouseDoubleClickEvent(self, event):
+        # Подвійний клік - виконати звичку
+        today_str = date.today().isoformat()
+        if self.habit.last_completed_date != today_str:
+            self.habit.streak += 1
+            self.habit.last_completed_date = today_str
+            self.storage.save_habit(self.habit)
+            self.parent_tab.update_list()

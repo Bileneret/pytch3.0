@@ -1,65 +1,55 @@
-from PyQt5.QtWidgets import QLabel
+from PyQt5.QtWidgets import QLabel, QPushButton, QHBoxLayout, QInputDialog
 from PyQt5.QtCore import Qt
 from .base_tab import BaseTab
-from src.ui.cards import HabitCard
-from datetime import datetime
+from ..cards import HabitCard
+from ...models import Habit
+
 
 class HabitTab(BaseTab):
     def __init__(self, parent, main_window):
-        super().__init__(parent)
-        self.mw = main_window
-        self.sort_combo = None
-        self.setup_ui()
+        super().__init__(parent, main_window)
+        self.setup_header()
+        self.update_list()
 
-    def setup_ui(self):
-        self.sort_combo = self.create_tab_controls(
-            btn_text="📅 Нова Звичка",
-            btn_command=self.mw.on_add_longterm,
-            refresh_command=self.mw.refresh_data,
-            sort_items=["Дата старту (нові)", "Дата старту (старі)", "Прогрес (більше)", "Прогрес (менше)", "Тривалість (довгі)"],
-            on_sort_change=self.update_list,
-            add_cleanup=False,
-            add_search=False
-        )
-        self.create_scroll_area()
+    def setup_header(self):
+        header = QHBoxLayout()
+        header.setContentsMargins(10, 10, 10, 0)
+
+        title = QLabel("Трекер Звичок")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
+
+        btn_add = QPushButton("+ Нова Звичка")
+        btn_add.setProperty("class", "actionBtn")
+        btn_add.clicked.connect(self.add_habit)
+
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(btn_add)
+
+        self.layout.insertLayout(0, header)
 
     def update_list(self):
-        """Обновляет список привычек."""
-        while self.list_layout.count():
-            child = self.list_layout.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
+        self.clear_list()
+        habits = self.mw.storage.get_habits(self.mw.user_id)
 
-        simulated_now = datetime.now() + self.mw.time_offset
-        try:
-            lt_goals, _ = self.mw.service.get_long_term_goals(custom_now=simulated_now)
+        if not habits:
+            lbl = QLabel("Немає звичок")
+            lbl.setStyleSheet("color: gray; font-size: 16px;")
+            lbl.setAlignment(Qt.AlignCenter)
+            self.list_layout.addWidget(lbl)
+            return
 
-            if self.sort_combo:
-                mode = self.sort_combo.currentText()
-                if "Дата старту (нові)" in mode:
-                    lt_goals.sort(key=lambda x: (x.is_completed, x.start_date), reverse=True)
-                elif "Дата старту (старі)" in mode:
-                    lt_goals.sort(key=lambda x: (x.is_completed, x.start_date))
-                elif "Прогрес (більше)" in mode:
-                    lt_goals.sort(key=lambda x: (x.is_completed, -x.calculate_progress()))
-                elif "Прогрес (менше)" in mode:
-                    lt_goals.sort(key=lambda x: (x.is_completed, x.calculate_progress()))
-                elif "Тривалість (довгі)" in mode:
-                    lt_goals.sort(key=lambda x: (x.is_completed, -x.total_days))
+        info = QLabel("💡 Подвійний клік для виконання")
+        info.setStyleSheet("color: #64748b; margin-left: 5px;")
+        self.list_layout.addWidget(info)
 
-            if not lt_goals:
-                self.list_layout.addWidget(
-                    QLabel("Немає активних звичок.", styleSheet="color: #7f8c8d; font-size: 14px;",
-                           alignment=Qt.AlignCenter))
-            else:
-                for g in lt_goals:
-                    card = HabitCard(
-                        g,
-                        simulated_now,
-                        self.mw.start_habit,
-                        self.mw.finish_habit,
-                        self.mw.edit_habit,
-                        self.mw.delete_habit
-                    )
-                    self.list_layout.addWidget(card)
-        except Exception as e:
-            self.list_layout.addWidget(QLabel(f"Помилка: {e}", styleSheet="color: red;"))
+        for habit in habits:
+            card = HabitCard(habit, self)
+            self.list_layout.addWidget(card)
+
+    def add_habit(self):
+        text, ok = QInputDialog.getText(self.mw, "Нова Звичка", "Назва:")
+        if ok and text:
+            new_habit = Habit(title=text, user_id=self.mw.user_id)
+            self.mw.storage.save_habit(new_habit)
+            self.update_list()

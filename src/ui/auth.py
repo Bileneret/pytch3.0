@@ -11,7 +11,7 @@ class LoginWindow(QWidget):
         super().__init__()
         self.auth_service = auth_service
         self.setWindowTitle("Learning Goals Manager - Вхід")
-        self.resize(380, 450)
+        self.resize(380, 550)
         self.init_ui()
 
     def init_ui(self):

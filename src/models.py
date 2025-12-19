@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional
 from enum import Enum
 
@@ -18,7 +18,6 @@ class GoalStatus(Enum):
 
 @dataclass
 class User:
-    """Модель користувача."""
     username: str
     password_hash: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -27,8 +26,16 @@ class User:
     avatar_path: str = ""
 
 @dataclass
+class SubGoal:
+    """Модель підцілі."""
+    title: str
+    goal_id: str
+    is_completed: bool = False
+    description: str = ""  # Додано опис
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+@dataclass
 class LearningGoal:
-    """Навчальна ціль."""
     title: str
     description: str = ""
     deadline: Optional[datetime] = None
@@ -40,10 +47,8 @@ class LearningGoal:
 
 @dataclass
 class Habit:
-    """Модель звички (нова)."""
     title: str
     user_id: str
     streak: int = 0
-    # Зберігаємо дату останнього виконання рядком (ISO format YYYY-MM-DD)
     last_completed_date: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
