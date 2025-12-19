@@ -1,47 +1,54 @@
-from ..models import Hero, HeroClass, Gender
-from ..session import SessionManager
+import hashlib
+from ..models import User
 
 
 class AuthService:
     def __init__(self, storage):
         self.storage = storage
+        self.current_user_id = None
 
-    def register(self, nickname: str, h_class: HeroClass, gender: Gender, appearance: str) -> Hero:
-        if not nickname or not nickname.strip():
-            raise ValueError("Введіть нікнейм!")
+    def _hash_password(self, password: str) -> str:
+        """Створення хешу пароля (SHA-256)."""
+        return hashlib.sha256(password.encode()).hexdigest()
 
-        hero = Hero(nickname=nickname, hero_class=h_class, gender=gender, appearance=appearance)
+    def register(self, username: str, password: str, confirm_password: str):
+        """Реєстрація з паролем."""
+        if not username or not username.strip():
+            return False, "Введіть ім'я користувача!"
 
-        # --- СПЕЦІАЛЬНА ЛОГІКА ДЛЯ "tester" ---
-        if nickname.lower() == "tester":
-            hero.level = 24
-            # Розрахунок XP до наступного рівня для 24-го рівня
-            # Формула з hero_logic: int(hero.level * 100 * 1.5)
-            hero.xp_to_next_level = int(hero.level * 100 * 1.5)
+        if not password or len(password) < 4:
+            return False, "Пароль має бути не менше 4 символів."
 
-            # Нараховуємо 23 очки характеристик (за кожен рівень з 2 по 24)
-            hero.stat_points = 23
-        # --------------------------------------
+        if password != confirm_password:
+            return False, "Паролі не співпадають."
 
-        # Оновлюємо похідні стати (HP/Mana) при створенні
-        hero.update_derived_stats()
-        # При створенні HP повне
-        hero.hp = hero.max_hp
-        hero.mana = hero.max_mana
+        if self.storage.get_user_by_username(username):
+            return False, "Користувач з таким іменем вже існує."
 
-        self.storage.create_hero(hero)
-        SessionManager.save_session(str(hero.id))
-        return hero
+        # Створення користувача
+        new_user = User(username=username)
+        new_user.password_hash = self._hash_password(password)
 
-    def login(self, nickname: str) -> Hero:
-        hero = self.storage.get_hero_by_nickname(nickname)
-        if not hero:
-            raise ValueError("Героя з таким нікнеймом не знайдено.")
-        SessionManager.save_session(str(hero.id))
-        return hero
+        self.storage.create_user(new_user)
+        self.current_user_id = new_user.id
+        return True, "Реєстрація успішна!"
 
-    def logout(self):
-        SessionManager.clear_session()
+    def login(self, username: str, password: str):
+        """Вхід з паролем."""
+        if not username or not password:
+            return False, "Введіть логін та пароль!"
+
+        user = self.storage.get_user_by_username(username)
+        if not user:
+            return False, "Користувача не знайдено."
+
+        # Перевірка пароля
+        input_hash = self._hash_password(password)
+        if user.password_hash != input_hash:
+            return False, "Невірний пароль."
+
+        self.current_user_id = user.id
+        return True, f"Вітаємо, {user.username}!"
 
     def get_current_user_id(self):
-        return SessionManager.load_session()
+        return self.current_user_id
