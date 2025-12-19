@@ -9,6 +9,7 @@ from src.logic import GoalService, AuthService
 from src.ui.main_window import MainWindow
 from src.ui.auth import LoginWindow
 
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "app.db")
 os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
