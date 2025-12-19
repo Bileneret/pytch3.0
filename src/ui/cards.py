@@ -1,7 +1,10 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy)
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QColor
 from ..models import GoalStatus
+# ДОДАНО ВІДСУТНІЙ ІМПОРТ
+from datetime import date
 
 
 class QuestCard(QFrame):
@@ -14,9 +17,10 @@ class QuestCard(QFrame):
         self.init_ui()
 
     def init_ui(self):
+        # Встановлюємо ім'я об'єкта для стилізації
         self.setObjectName("CardFrame")
 
-        # --- ВАЖЛИВО: ОДНАКОВА ШИРИНА РАМКИ (2px) ЩОБ НЕ ЛАМАТИ LAYOUT ---
+        # Стилі для станів (з однаковою шириною рамки, щоб уникнути "стрибків" інтерфейсу)
         self.style_normal = """
             QFrame#CardFrame {
                 background-color: #1e293b;
@@ -30,7 +34,7 @@ class QuestCard(QFrame):
         self.style_highlight = """
             QFrame#CardFrame {
                 background-color: #1e3a8a;
-                border: 2px solid #ea80fc; /* Тільки зміна кольору! */
+                border: 2px solid #ea80fc; /* Підсвітка кольором (рожевий/фіолетовий) */
                 border-radius: 8px;
             }
             QLabel { border: none; background-color: transparent; color: #ffffff; }
@@ -69,6 +73,7 @@ class QuestCard(QFrame):
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet("color: #cbd5e1; font-size: 14px; margin-bottom: 5px; border: none;")
             desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+            # Дозволяємо виділяти текст мишкою
             desc_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             layout.addWidget(desc_lbl)
 
@@ -107,6 +112,7 @@ class QuestCard(QFrame):
         # 5. SUBGOALS LIST
         if self.subgoals:
             sub_container = QFrame()
+            # Прозорий фон, щоб не перекривати стиль батьківського фрейму
             sub_container.setStyleSheet("background-color: #111827; border-radius: 6px; margin-top: 8px; border: none;")
             sub_layout = QVBoxLayout(sub_container)
             sub_layout.setContentsMargins(10, 10, 10, 10)
@@ -170,7 +176,7 @@ class QuestCard(QFrame):
 
     # === БЕЗПЕЧНА ПІДСВІТКА ===
     def highlight_card(self):
-        """Змінює стиль на яскравий (без зміни геометрії)."""
+        """Змінює стиль на яскравий (тільки зміна кольору рамки)."""
         self.setStyleSheet(self.style_highlight)
         QTimer.singleShot(1500, self.reset_style)
 
@@ -245,6 +251,7 @@ class HabitCard(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
 
+        # ТУТ ВИКОРИСТОВУЄТЬСЯ date, ЯКИЙ БУВ ВІДСУТНІЙ
         today_str = date.today().isoformat()
         is_done = (self.habit.last_completed_date == today_str)
 
