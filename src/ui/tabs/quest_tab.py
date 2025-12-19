@@ -34,7 +34,6 @@ class QuestTab(BaseTab):
             QPushButton:hover { background-color: #2563eb; }
         """
 
-        # Кнопка ШІ (Фіолетова)
         ai_style = """
             QPushButton { 
                 background-color: #7c3aed; color: white; border: 2px solid #8b5cf6; 
@@ -47,10 +46,9 @@ class QuestTab(BaseTab):
         btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self.add_goal)
 
-        # ПОВЕРНУТО КНОПКУ ШІ
         btn_ai = QPushButton("✨ ШІ Ціль")
         btn_ai.setStyleSheet(ai_style)
-        btn_ai.clicked.connect(lambda: QMessageBox.information(self.mw, "AI", "ШІ генерація цілей скоро!"))
+        btn_ai.clicked.connect(lambda: QMessageBox.information(self.mw, "AI", "ШІ генерація скоро!"))
 
         btn_refresh = QPushButton("🔄 Оновити")
         btn_refresh.setStyleSheet(btn_style)
@@ -71,7 +69,7 @@ class QuestTab(BaseTab):
         btn_cleanup.clicked.connect(lambda: QMessageBox.information(self.mw, "Інфо", "Автовидалення виконаних"))
 
         footer.addWidget(btn_add)
-        footer.addWidget(btn_ai)  # Додано
+        footer.addWidget(btn_ai)
         footer.addWidget(btn_refresh)
         footer.addWidget(btn_search)
         footer.addStretch()
@@ -82,6 +80,7 @@ class QuestTab(BaseTab):
     def update_list(self):
         self.clear_list()
         goals = self.mw.storage.get_goals(self.mw.user_id)
+        # Сортування: спочатку активні
         goals.sort(key=lambda x: x.status == GoalStatus.COMPLETED)
 
         if not goals:

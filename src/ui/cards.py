@@ -1,9 +1,48 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy)
+                             QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy, QTextBrowser)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QPalette
 from ..models import GoalStatus
 from datetime import date
+
+
+class ResizableTextBrowser(QTextBrowser):
+    """
+    Кастомний віджет тексту, який автоматично підганяє свою висоту під контент.
+    Виглядає як звичайний QLabel, але коректно переносить текст.
+    """
+
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self.setText(text)
+        self.setFrameStyle(QFrame.NoFrame)
+        # Прозорий фон
+        palette = self.palette()
+        palette.setColor(QPalette.Base, Qt.transparent)
+        self.setPalette(palette)
+        # Стиль тексту
+        self.setStyleSheet("color: #cbd5e1; font-size: 14px; background-color: transparent;")
+
+        # Вимикаємо скролбари
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setReadOnly(True)
+
+        # Політика розміру
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+
+        # Початкове налаштування висоти
+        self.document().contentsChanged.connect(self.adjust_height)
+        self.adjust_height()
+
+    def adjust_height(self):
+        """Змінює висоту віджета відповідно до висоти тексту."""
+        doc_height = self.document().size().height()
+        self.setFixedHeight(int(doc_height + 10))  # +10 для відступу
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.adjust_height()
 
 
 class QuestCard(QFrame):
@@ -58,14 +97,10 @@ class QuestCard(QFrame):
         header_layout.addWidget(delete_btn)
         layout.addLayout(header_layout)
 
-        # DESCRIPTION
+        # DESCRIPTION (Використовуємо ResizableTextBrowser)
         if self.goal.description:
-            desc_lbl = QLabel(self.goal.description)
-            desc_lbl.setWordWrap(True)
-            desc_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            desc_lbl.setStyleSheet("color: #cbd5e1; font-size: 14px; margin-bottom: 5px;")
-            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-            layout.addWidget(desc_lbl)
+            desc_widget = ResizableTextBrowser(self.goal.description)
+            layout.addWidget(desc_widget)
 
         # PROGRESS BAR
         self.subgoals = self.storage.get_subgoals(self.goal.id)
@@ -87,7 +122,7 @@ class QuestCard(QFrame):
         details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 2px;")
         layout.addWidget(details_lbl)
 
-        # SUBGOALS LIST (INLINE - ТІЛЬКИ НАЗВИ)
+        # SUBGOALS LIST (Тільки назви)
         if self.subgoals:
             sub_container = QFrame()
             sub_container.setStyleSheet("background-color: #111827; border-radius: 6px; margin-top: 8px; border: none;")
@@ -105,9 +140,7 @@ class QuestCard(QFrame):
 
                 row.addWidget(chk)
                 row.addStretch()
-
                 sub_layout.addLayout(row)
-                # ОПИС ТУТ БІЛЬШЕ НЕ ДОДАЄТЬСЯ
 
             layout.addWidget(sub_container)
 

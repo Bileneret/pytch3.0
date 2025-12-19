@@ -82,7 +82,7 @@ class StorageService:
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # Щоб уникнути зміни порядку, якщо запис існує, робимо UPDATE, інакше INSERT
+        # Перевіряємо, чи існує запис, щоб зробити UPDATE замість REPLACE (зберігає rowid і порядок)
         c.execute("SELECT 1 FROM goals WHERE id = ?", (goal.id,))
         exists = c.fetchone()
 
@@ -101,8 +101,7 @@ class StorageService:
     def get_goals(self, user_id: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # ВАЖЛИВО: Сортування по created_at DESC (спочатку нові) або ASC (спочатку старі)
-        # Щоб при редагуванні порядок не ламався, використовуємо незмінне поле created_at
+        # Сортуємо по даті створення (спочатку нові), щоб порядок не скакав
         c.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         rows = c.fetchall()
         conn.close()

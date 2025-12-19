@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QDialog, QVBoxLayout, QLabel, QScrollArea,
     QHBoxLayout, QPushButton, QMessageBox, QLineEdit, QTextEdit,
-    QAbstractItemView, QWidget, QProgressBar, QSizePolicy, QCheckBox
+    QWidget, QProgressBar, QSizePolicy, QFrame, QCheckBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from src.models import SubGoal
@@ -32,6 +32,30 @@ class AIWorker(QThread):
             self.finished.emit(subgoals_data)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class ResizableTextBrowser(QTextEdit):
+    """Текст, що розтягується під контент (дублюється для автономності)."""
+
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self.setPlainText(text)
+        self.setFrameStyle(QFrame.NoFrame)
+        self.setReadOnly(True)
+        self.setStyleSheet("color: #94a3b8; font-size: 13px; background-color: transparent; border: none;")
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.document().contentsChanged.connect(self.adjust_height)
+        self.adjust_height()
+
+    def adjust_height(self):
+        doc_height = self.document().size().height()
+        self.setFixedHeight(int(doc_height + 10))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.adjust_height()
 
 
 class SubGoalInputDialog(QDialog):
@@ -80,32 +104,70 @@ class SubGoalInputDialog(QDialog):
         return self.title_input.text().strip(), self.desc_input.toPlainText().strip()
 
 
-class SubgoalListWidget(QWidget):
-    """
-    Кастомний віджет, який вставляється всередину QListWidgetItem.
-    Це дозволяє мати Title + Description (WordWrap) в одному елементі списку.
-    """
+class SubgoalItemWidget(QFrame):
+    """Картка підцілі для списку."""
 
-    def __init__(self, subgoal):
+    def __init__(self, subgoal, parent_dialog):
         super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(2)
+        self.subgoal = subgoal
+        self.parent_dialog = parent_dialog
+        self.init_ui()
 
-        # Назва
-        title_lbl = QLabel(subgoal.title)
+    def init_ui(self):
+        self.setStyleSheet("""
+            QFrame { background-color: #1e293b; border-bottom: 1px solid #334155; border-radius: 4px; }
+            QFrame:hover { background-color: #1e3a8a; } 
+            QLabel { background-color: transparent; border: none; color: white; }
+        """)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Checkbox з прозорим фоном
+        chk = QCheckBox()
+        chk.setChecked(self.subgoal.is_completed)
+        chk.setStyleSheet("""
+            QCheckBox { background-color: transparent; }
+            QCheckBox::indicator { 
+                width: 18px; height: 18px; 
+                background-color: transparent; 
+                border: 1px solid #94a3b8; 
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:checked { 
+                background-color: #2563eb; 
+                border: 1px solid #3b82f6;
+                image: url(:/icons/check.png);
+            }
+        """)
+        chk.stateChanged.connect(lambda state: self.parent_dialog.toggle_subgoal(state, self.subgoal))
+
+        # TEXT (Title + Resizable Description)
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+
+        title_lbl = QLabel(self.subgoal.title)
         title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: white; background: transparent;")
-        layout.addWidget(title_lbl)
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: bold;")
+        title_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        text_layout.addWidget(title_lbl)
 
-        # Опис (якщо є)
-        if subgoal.description:
-            desc_lbl = QLabel(subgoal.description)
-            desc_lbl.setWordWrap(True)  # Автоматичний перенос тексту
-            desc_lbl.setStyleSheet("font-size: 13px; color: #94a3b8; background: transparent;")
-            # Важливо: політика розміру для розтягування
-            desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-            layout.addWidget(desc_lbl)
+        if self.subgoal.description:
+            # Використовуємо ResizableTextBrowser для гарантованого переносу
+            desc_widget = ResizableTextBrowser(self.subgoal.description)
+            text_layout.addWidget(desc_widget)
+
+        # У цьому віджеті прибираємо кнопки редагування/видалення,
+        # бо вони будуть у нижній панелі діалогу (виділив -> натиснув кнопку знизу)
+
+        layout.addWidget(chk)
+        layout.addLayout(text_layout, 1)  # Text stretches
+
+    # Дозволяємо виділяти рядок кліком
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        # Емуляція виділення для parent scroll area layout - це складно без QListWidget.
+        # Тому ми додамо поле 'selected' і змінимо стиль вручну.
+        self.parent_dialog.select_item(self)
 
 
 class SubgoalsDialog(QDialog):
@@ -117,26 +179,16 @@ class SubgoalsDialog(QDialog):
 
         goals = self.storage.get_goals(self.parent_window.user_id)
         self.goal = next((g for g in goals if g.id == goal_id), None)
+        self.selected_widget = None  # Для зберігання виділеного елемента
 
         self.setWindowTitle("Управління підцілями")
-        self.resize(500, 600)
+        self.resize(500, 650)
         self.init_ui()
         self.update_list()
 
     def init_ui(self):
         self.setStyleSheet("""
             QDialog { background-color: #0b0f19; color: white; font-family: 'Segoe UI'; }
-            QListWidget { 
-                background-color: #111827; border: 2px solid #1e3a8a; 
-                border-radius: 8px; padding: 5px; outline: none;
-            }
-            QListWidget::item { 
-                background-color: #1e293b; border-bottom: 1px solid #334155; 
-                margin-bottom: 5px; border-radius: 4px; 
-            }
-            QListWidget::item:selected { 
-                background-color: #1d4ed8; border: 1px solid #60a5fa; 
-            }
             QPushButton { 
                 background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; 
                 border-radius: 6px; padding: 9px 12px; font-weight: bold; font-size: 13px;
@@ -161,11 +213,21 @@ class SubgoalsDialog(QDialog):
         header.setWordWrap(True)
         layout.addWidget(header)
 
-        # QListWidget (Classic approach)
-        self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.list_widget.itemDoubleClicked.connect(self.edit_subgoal)
-        layout.addWidget(self.list_widget)
+        # SCROLL AREA
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(
+            "QScrollArea { border: 2px solid #1e3a8a; border-radius: 8px; background-color: #111827; }")
+
+        container = QWidget()
+        container.setStyleSheet("background-color: #111827;")
+        self.items_layout = QVBoxLayout(container)
+        self.items_layout.setAlignment(Qt.AlignTop)
+        self.items_layout.setSpacing(5)
+        self.items_layout.setContentsMargins(5, 5, 5, 5)
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
         self.loading_bar = QProgressBar()
         self.loading_bar.setRange(0, 0)
@@ -173,26 +235,28 @@ class SubgoalsDialog(QDialog):
         self.loading_bar.setFixedHeight(10)
         layout.addWidget(self.loading_bar)
 
-        btns = QHBoxLayout()
+        # ПАНЕЛЬ КНОПОК ЗНИЗУ
+        btns_layout = QHBoxLayout()
+
         btn_add = QPushButton("Додати")
         btn_add.clicked.connect(self.add_subgoal)
-
-        btn_edit = QPushButton("Редагувати")
-        btn_edit.clicked.connect(self.edit_subgoal)
 
         btn_ai = QPushButton("AI Генерація")
         btn_ai.setObjectName("AiBtn")
         btn_ai.clicked.connect(self.generate_ai_subgoals)
 
+        btn_edit = QPushButton("Редагувати")
+        btn_edit.clicked.connect(self.edit_subgoal)
+
         btn_del = QPushButton("Видалити")
         btn_del.setObjectName("DelBtn")
         btn_del.clicked.connect(self.delete_subgoal)
 
-        btns.addWidget(btn_add)
-        btns.addWidget(btn_edit)
-        btns.addWidget(btn_ai)
-        btns.addWidget(btn_del)
-        layout.addLayout(btns)
+        btns_layout.addWidget(btn_add)
+        btns_layout.addWidget(btn_ai)
+        btns_layout.addWidget(btn_edit)
+        btns_layout.addWidget(btn_del)
+        layout.addLayout(btns_layout)
 
         btn_close = QPushButton("Закрити")
         btn_close.setStyleSheet("background-color: transparent; border: 1px solid #475569; margin-top: 10px;")
@@ -202,22 +266,27 @@ class SubgoalsDialog(QDialog):
         self.setLayout(layout)
 
     def update_list(self):
-        self.list_widget.clear()
+        # Clean layout
+        while self.items_layout.count():
+            child = self.items_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+        self.selected_widget = None
+
         subgoals = self.storage.get_subgoals(self.goal_id)
 
         for sub in subgoals:
-            item = QListWidgetItem()
-            # Зберігаємо об'єкт підцілі в UserRole
-            item.setData(Qt.UserRole, sub)
+            item_widget = SubgoalItemWidget(sub, self)
+            self.items_layout.addWidget(item_widget)
 
-            # Створюємо кастомний віджет для відображення
-            widget = SubgoalListWidget(sub)
+    def select_item(self, widget):
+        # Зняти виділення з попереднього
+        if self.selected_widget:
+            self.selected_widget.setStyleSheet(
+                "QFrame { background-color: #1e293b; border-bottom: 1px solid #334155; border-radius: 4px; } QFrame:hover { background-color: #1e3a8a; }")
 
-            # Встановлюємо розмір елемента списку на основі розміру віджета
-            item.setSizeHint(widget.sizeHint())
-
-            self.list_widget.addItem(item)
-            self.list_widget.setItemWidget(item, widget)
+        self.selected_widget = widget
+        # Встановити стиль виділення
+        widget.setStyleSheet("QFrame { background-color: #1d4ed8; border: 1px solid #60a5fa; border-radius: 4px; }")
 
     def add_subgoal(self):
         dialog = SubGoalInputDialog(self)
@@ -229,15 +298,11 @@ class SubgoalsDialog(QDialog):
                 self.update_list()
 
     def edit_subgoal(self):
-        # Якщо викликано подвійним кліком, отримуємо item, інакше з selectedItems
-        items = self.list_widget.selectedItems()
-        if not items:
-            QMessageBox.warning(self, "Увага", "Оберіть підціль для редагування")
+        if not self.selected_widget:
+            QMessageBox.warning(self, "Увага", "Оберіть підціль для редагування (клікніть по ній)")
             return
 
-        item = items[0]
-        sub = item.data(Qt.UserRole)
-
+        sub = self.selected_widget.subgoal
         dialog = SubGoalInputDialog(self, title_text=sub.title, desc_text=sub.description)
         if dialog.exec_():
             title, desc = dialog.get_data()
@@ -248,17 +313,19 @@ class SubgoalsDialog(QDialog):
                 self.update_list()
 
     def delete_subgoal(self):
-        items = self.list_widget.selectedItems()
-        if not items:
+        if not self.selected_widget:
             QMessageBox.warning(self, "Увага", "Оберіть підціль для видалення")
             return
 
-        reply = QMessageBox.question(self, "Видалити", "Видалити обрану підціль?", QMessageBox.Yes | QMessageBox.No)
+        sub = self.selected_widget.subgoal
+        reply = QMessageBox.question(self, "Видалити", "Видалити цей крок?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            for item in items:
-                sub = item.data(Qt.UserRole)
-                self.storage.delete_subgoal(sub.id)
+            self.storage.delete_subgoal(sub.id)
             self.update_list()
+
+    def toggle_subgoal(self, state, sub):
+        sub.is_completed = (state == Qt.Checked)
+        self.storage.save_subgoal(sub)
 
     def generate_ai_subgoals(self):
         if not self.goal: return
