@@ -6,7 +6,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 from datetime import datetime, date
 from collections import Counter
-import warnings  # Додано для придушення варнінгів
+import warnings
+
+# Імпорти моделей
+from ...models import GoalStatus, CourseStatus, CourseType
 
 # Налаштування кольорів
 BG_DARK = '#0b0f19'
@@ -37,8 +40,13 @@ class StatsTab(BaseTab):
     def __init__(self, parent, main_window):
         super().__init__(parent, main_window)
         self.mw = main_window
+        warnings.filterwarnings("ignore")
 
-        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        # Налаштування скролу з базового класу
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        # Налаштування лейауту
         self.list_layout.setContentsMargins(20, 20, 20, 40)
         self.list_layout.setSpacing(20)
 
@@ -46,17 +54,19 @@ class StatsTab(BaseTab):
         self.update_charts()
 
     def setup_ui(self):
+        # Заголовок
         header_lbl = QLabel("Аналітика та Статистика")
         header_lbl.setStyleSheet("font-size: 26px; font-weight: bold; color: white; margin-bottom: 10px;")
         self.list_layout.addWidget(header_lbl)
 
+        # Таби
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border: 0; background: transparent; }}
             QTabBar::tab {{ 
                 background: {BG_CARD}; 
                 color: {TEXT_SUB}; 
-                padding: 12px 50px; 
+                padding: 12px 30px; 
                 margin-right: 10px; 
                 min-width: 100px;
                 border: 1px solid {BORDER};
@@ -72,14 +82,18 @@ class StatsTab(BaseTab):
             QTabBar::tab:hover {{ background: #1e293b; color: white; }}
         """)
 
+        # Сторінки
         self.goals_page = QWidget()
         self.habits_page = QWidget()
+        self.dev_page = QWidget()  # Нова сторінка
 
         self.tabs.addTab(self.goals_page, "🎯 Цілі")
         self.tabs.addTab(self.habits_page, "⚡ Звички")
+        self.tabs.addTab(self.dev_page, "🚀 Розвиток")
 
         self.list_layout.addWidget(self.tabs)
 
+        # Лейаути сторінок
         self.goals_layout = QVBoxLayout(self.goals_page)
         self.goals_layout.setSpacing(30)
         self.goals_layout.setContentsMargins(0, 20, 0, 20)
@@ -88,12 +102,20 @@ class StatsTab(BaseTab):
         self.habits_layout.setSpacing(30)
         self.habits_layout.setContentsMargins(0, 20, 0, 20)
 
+        self.dev_layout = QVBoxLayout(self.dev_page)
+        self.dev_layout.setSpacing(30)
+        self.dev_layout.setContentsMargins(0, 20, 0, 20)
+
     def update_charts(self):
         self._clear_layout(self.goals_layout)
         self._clear_layout(self.habits_layout)
+        self._clear_layout(self.dev_layout)
+
         plt.close('all')
+
         self.render_goals_stats()
         self.render_habits_stats()
+        self.render_development_stats()
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -105,7 +127,6 @@ class StatsTab(BaseTab):
 
     # --- GOALS ---
     def render_goals_stats(self):
-        from ...models import GoalStatus
         goals = self.mw.storage.get_goals(self.mw.user_id)
 
         if not goals:
@@ -117,6 +138,7 @@ class StatsTab(BaseTab):
         in_progress = sum(1 for g in goals if g.status == GoalStatus.IN_PROGRESS)
         rate = int((completed / total) * 100) if total > 0 else 0
 
+        # KPI
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(20)
         kpi_row.addWidget(self.create_kpi("Всього цілей", str(total), "#60a5fa"))
@@ -124,6 +146,7 @@ class StatsTab(BaseTab):
         kpi_row.addWidget(self.create_kpi("В процесі", str(in_progress), "#facc15"))
         self.goals_layout.addLayout(kpi_row)
 
+        # Charts
         grid = QGridLayout()
         grid.setSpacing(20)
 
@@ -203,6 +226,82 @@ class StatsTab(BaseTab):
 
         self.habits_layout.addLayout(grid)
 
+    # --- DEVELOPMENT (NEW) ---
+    def render_development_stats(self):
+        courses = self.mw.storage.get_courses(self.mw.user_id)
+
+        if not courses:
+            self.dev_layout.addWidget(QLabel("Немає даних", alignment=Qt.AlignCenter))
+            return
+
+        total = len(courses)
+        completed = sum(1 for c in courses if c.status == CourseStatus.COMPLETED)
+
+        # Середній прогрес
+        total_p = 0
+        valid = 0
+        for c in courses:
+            if c.total_units > 0:
+                total_p += (c.completed_units / c.total_units)
+                valid += 1
+        avg_rate = int((total_p / valid) * 100) if valid > 0 else 0
+
+        # KPI
+        kpi_row = QHBoxLayout()
+        kpi_row.setSpacing(20)
+        kpi_row.addWidget(self.create_kpi("Всього матеріалів", str(total), "#f472b6"))
+        kpi_row.addWidget(self.create_kpi("Середній прогрес", f"{avg_rate}%", "#38bdf8"))
+        kpi_row.addWidget(self.create_kpi("Завершено", str(completed), "#4ade80"))
+        self.dev_layout.addLayout(kpi_row)
+
+        # Charts
+        grid = QGridLayout()
+        grid.setSpacing(20)
+
+        # 1. Status
+        s_counts = Counter(c.status for c in courses)
+        s_labels = ["В процесі", "Заплановано", "Завершено", "Закинуто"]
+        s_vals = [
+            s_counts[CourseStatus.IN_PROGRESS],
+            s_counts[CourseStatus.PLANNED],
+            s_counts[CourseStatus.COMPLETED],
+            s_counts[CourseStatus.DROPPED]
+        ]
+        s_colors = ["#38bdf8", "#94a3b8", "#4ade80", "#ef4444"]
+        grid.addWidget(self.create_chart_box("Статус", self.plot_donut(s_vals, s_labels, s_colors)), 0, 0)
+
+        # 2. Types
+        t_counts = Counter(c.course_type.value for c in courses)
+        t_labels = list(t_counts.keys())
+        t_vals = list(t_counts.values())
+        grid.addWidget(self.create_chart_box("Типи контенту", self.plot_pie(t_vals, t_labels,
+                                                                            ["#fbbf24", "#818cf8", "#f472b6", "#34d399",
+                                                                             "#60a5fa", "#a78bfa"])), 0, 1)
+
+        # 3. Top Topics
+        topics = self.mw.storage.get_topics(self.mw.user_id)
+        t_map = {t.id: t.name for t in topics}
+        top_counts = Counter(c.topic_id for c in courses)
+
+        # Top 5
+        top_5 = top_counts.most_common(5)
+        top_labels = [t_map.get(tid, "Інше") for tid, _ in top_5]
+        top_vals = [cnt for _, cnt in top_5]
+
+        grid.addWidget(self.create_chart_box("Топ тем", self.plot_bar(top_labels, top_vals, "#c084fc")), 1, 0)
+
+        # 4. Active Progress
+        active = [c for c in courses if c.status == CourseStatus.IN_PROGRESS]
+        active.sort(key=lambda x: (x.completed_units / x.total_units) if x.total_units else 0, reverse=True)
+        active = active[:5]
+
+        a_labels = [c.title[:15] + ".." if len(c.title) > 15 else c.title for c in active]
+        a_vals = [int((c.completed_units / c.total_units) * 100) if c.total_units else 0 for c in active]
+
+        grid.addWidget(self.create_chart_box("Активний прогрес (%)", self.plot_hbar(a_labels, a_vals, "#22d3ee")), 1, 1)
+
+        self.dev_layout.addLayout(grid)
+
     # --- COMPONENTS ---
     def create_kpi(self, title, value, color):
         card = QFrame()
@@ -251,13 +350,12 @@ class StatsTab(BaseTab):
 
     # --- PLOTTING ---
     def _finalize_plot(self, fig):
-        # ІГНОРУВАННЯ ПОМИЛОК LAYOUT
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             try:
                 fig.tight_layout(pad=3.0)
             except Exception:
-                pass  # Якщо не вийшло - залишаємо як є
+                pass
         return fig
 
     def plot_pie(self, values, labels, colors):
@@ -299,6 +397,10 @@ class StatsTab(BaseTab):
 
     def plot_line(self, cats, vals, color):
         fig, ax = plt.subplots()
+        if not cats:
+            ax.text(0.5, 0.5, "Немає даних", ha='center', color=TEXT_SUB)
+            return self._finalize_plot(fig)
+
         ax.plot(cats, vals, marker='o', color=color, linewidth=2)
         ax.fill_between(cats, vals, color=color, alpha=0.2)
         for x, y in zip(cats, vals):
