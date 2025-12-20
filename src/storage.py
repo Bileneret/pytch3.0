@@ -1,7 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime
-from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit, SubGoal
+from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit, SubGoal, Category
 
 
 class StorageService:
@@ -19,18 +19,30 @@ class StorageService:
             total_completed_goals INTEGER, avatar_path TEXT, created_at TEXT
         )''')
 
+        # ОНОВЛЕНО: додано category_id
+        # Якщо таблиця вже існує без цієї колонки, код нижче додасть її
         c.execute('''CREATE TABLE IF NOT EXISTS goals (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, description TEXT,
-            deadline TEXT, priority TEXT, status TEXT, created_at TEXT
+            deadline TEXT, priority TEXT, status TEXT, created_at TEXT, category_id TEXT
         )''')
+
+        # Спроба міграції (якщо база стара)
+        try:
+            c.execute("ALTER TABLE goals ADD COLUMN category_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Колонка вже існує
 
         c.execute('''CREATE TABLE IF NOT EXISTS habits (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, streak INTEGER, last_completed_date TEXT
         )''')
 
-        # ОНОВЛЕНО: додано created_at
         c.execute('''CREATE TABLE IF NOT EXISTS subgoals (
             id TEXT PRIMARY KEY, goal_id TEXT, title TEXT, is_completed INTEGER, description TEXT, created_at TEXT
+        )''')
+
+        # НОВА ТАБЛИЦЯ: Категорії
+        c.execute('''CREATE TABLE IF NOT EXISTS categories (
+            id TEXT PRIMARY KEY, user_id TEXT, name TEXT, color TEXT
         )''')
 
         conn.commit()
@@ -80,6 +92,35 @@ class StorageService:
         conn.commit()
         conn.close()
 
+    # --- CATEGORIES ---
+    def save_category(self, category: Category):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''INSERT OR REPLACE INTO categories VALUES (?, ?, ?, ?)''',
+                  (category.id, category.user_id, category.name, category.color))
+        conn.commit()
+        conn.close()
+
+    def get_categories(self, user_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT * FROM categories WHERE user_id = ?", (user_id,))
+        rows = c.fetchall()
+        conn.close()
+        cats = []
+        for r in rows:
+            cats.append(Category(id=r[0], user_id=r[1], name=r[2], color=r[3]))
+        return cats
+
+    def delete_category(self, cat_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
+        # Також прибираємо посилання на категорію в цілях
+        c.execute("UPDATE goals SET category_id = NULL WHERE category_id = ?", (cat_id,))
+        conn.commit()
+        conn.close()
+
     # --- GOALS ---
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
@@ -88,14 +129,15 @@ class StorageService:
         exists = c.fetchone()
 
         if exists:
-            c.execute('''UPDATE goals SET title=?, description=?, deadline=?, priority=?, status=? WHERE id=?''',
-                      (goal.title, goal.description, str(goal.deadline) if goal.deadline else None,
-                       goal.priority.name, goal.status.name, goal.id))
+            c.execute(
+                '''UPDATE goals SET title=?, description=?, deadline=?, priority=?, status=?, category_id=? WHERE id=?''',
+                (goal.title, goal.description, str(goal.deadline) if goal.deadline else None,
+                 goal.priority.name, goal.status.name, goal.category_id, goal.id))
         else:
-            c.execute('''INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            c.execute('''INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                       (goal.id, goal.user_id, goal.title, goal.description,
                        str(goal.deadline) if goal.deadline else None,
-                       goal.priority.name, goal.status.name, str(goal.created_at)))
+                       goal.priority.name, goal.status.name, str(goal.created_at), goal.category_id))
         conn.commit()
         conn.close()
 
@@ -113,6 +155,9 @@ class StorageService:
             g.deadline = r[4]
             if r[5] in GoalPriority.__members__: g.priority = GoalPriority[r[5]]
             if r[6] in GoalStatus.__members__: g.status = GoalStatus[r[6]]
+            # r[7] - created_at, r[8] - category_id
+            if len(r) > 8:
+                g.category_id = r[8]
             goals.append(g)
         return goals
 
@@ -152,7 +197,6 @@ class StorageService:
     def save_subgoal(self, subgoal: SubGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        # Зберігаємо також created_at
         c.execute('''INSERT OR REPLACE INTO subgoals VALUES (?, ?, ?, ?, ?, ?)''',
                   (subgoal.id, subgoal.goal_id, subgoal.title,
                    1 if subgoal.is_completed else 0,
@@ -174,21 +218,14 @@ class StorageService:
             s.id = r[0]
             s.is_completed = bool(r[3])
             s.description = r[4] if len(r) > 4 else ""
-
-            # Відновлюємо дату створення, якщо вона є (для старих записів може не бути)
             if len(r) > 5 and r[5]:
                 try:
                     s.created_at = datetime.fromisoformat(r[5])
                 except:
-                    pass  # Залишаємо default, якщо формат битий
-
+                    pass
             subgoals.append(s)
 
-        # СОРТУВАННЯ:
-        # 1. За станом виконання (невиконані - False - йдуть першими)
-        # 2. За датою створення (щоб зберігався хронологічний порядок всередині груп)
         subgoals.sort(key=lambda x: (x.is_completed, x.created_at))
-
         return subgoals
 
     def delete_subgoal(self, subgoal_id: str):

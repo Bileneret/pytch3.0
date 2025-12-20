@@ -3,7 +3,6 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBut
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 from ..models import GoalStatus
-# ДОДАНО ВІДСУТНІЙ ІМПОРТ
 from datetime import date
 
 
@@ -13,32 +12,42 @@ class QuestCard(QFrame):
         self.goal = goal
         self.parent_tab = parent_tab
         self.storage = parent_tab.mw.storage
+        self.category = None
+
+        # Завантажуємо категорію
+        if self.goal.category_id:
+            cats = self.storage.get_categories(self.goal.user_id)
+            for c in cats:
+                if c.id == self.goal.category_id:
+                    self.category = c
+                    break
 
         self.init_ui()
 
     def init_ui(self):
-        # Встановлюємо ім'я об'єкта для стилізації
         self.setObjectName("CardFrame")
 
-        # Стилі для станів (з однаковою шириною рамки, щоб уникнути "стрибків" інтерфейсу)
-        self.style_normal = """
-            QFrame#CardFrame {
+        # Визначаємо колір бордера (якщо є категорія - беремо її колір, інакше дефолтний)
+        border_color = self.category.color if self.category else "#1e3a8a"
+
+        self.style_normal = f"""
+            QFrame#CardFrame {{
                 background-color: #1e293b;
-                border: 2px solid #1e3a8a; 
+                border: 2px solid {border_color}; 
                 border-radius: 8px;
-            }
-            QLabel { border: none; background-color: transparent; color: #e0e0e0; }
-            QCheckBox { background-color: transparent; color: #e0e0e0; font-size: 13px; }
+            }}
+            QLabel {{ border: none; background-color: transparent; color: #e0e0e0; }}
+            QCheckBox {{ background-color: transparent; color: #e0e0e0; font-size: 13px; }}
         """
 
-        self.style_highlight = """
-            QFrame#CardFrame {
+        self.style_highlight = f"""
+            QFrame#CardFrame {{
                 background-color: #1e3a8a;
-                border: 2px solid #ea80fc; /* Підсвітка кольором (рожевий/фіолетовий) */
+                border: 2px solid #ea80fc; 
                 border-radius: 8px;
-            }
-            QLabel { border: none; background-color: transparent; color: #ffffff; }
-            QCheckBox { background-color: transparent; color: #ffffff; font-size: 13px; }
+            }}
+            QLabel {{ border: none; background-color: transparent; color: #ffffff; }}
+            QCheckBox {{ background-color: transparent; color: #ffffff; font-size: 13px; }}
         """
 
         self.setStyleSheet(self.style_normal)
@@ -47,11 +56,15 @@ class QuestCard(QFrame):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(8)
 
-        # 1. HEADER
+        # 1. HEADER + CATEGORY BADGE
         header_layout = QHBoxLayout()
         status_icon = "🔵" if self.goal.status == GoalStatus.PLANNED else "✅"
 
-        title_lbl = QLabel(f"{status_icon} {self.goal.title}")
+        title_text = f"{status_icon} {self.goal.title}"
+        if self.category:
+            title_text += f"  <span style='font-size:12px; color:{self.category.color};'>[{self.category.name}]</span>"
+
+        title_lbl = QLabel(title_text)
         title_lbl.setWordWrap(True)
         title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: white; border: none;")
 
@@ -67,13 +80,12 @@ class QuestCard(QFrame):
         header_layout.addWidget(delete_btn)
         layout.addLayout(header_layout)
 
-        # 2. DESCRIPTION (Використовуємо надійний QLabel)
+        # 2. DESCRIPTION
         if self.goal.description:
             desc_lbl = QLabel(self.goal.description)
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet("color: #cbd5e1; font-size: 14px; margin-bottom: 5px; border: none;")
             desc_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-            # Дозволяємо виділяти текст мишкою
             desc_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             layout.addWidget(desc_lbl)
 
@@ -112,7 +124,6 @@ class QuestCard(QFrame):
         # 5. SUBGOALS LIST
         if self.subgoals:
             sub_container = QFrame()
-            # Прозорий фон, щоб не перекривати стиль батьківського фрейму
             sub_container.setStyleSheet("background-color: #111827; border-radius: 6px; margin-top: 8px; border: none;")
             sub_layout = QVBoxLayout(sub_container)
             sub_layout.setContentsMargins(10, 10, 10, 10)
@@ -174,14 +185,11 @@ class QuestCard(QFrame):
         btn_layout.addWidget(btn_complete)
         layout.addLayout(btn_layout)
 
-    # === БЕЗПЕЧНА ПІДСВІТКА ===
     def highlight_card(self):
-        """Змінює стиль на яскравий (тільки зміна кольору рамки)."""
         self.setStyleSheet(self.style_highlight)
         QTimer.singleShot(1500, self.reset_style)
 
     def reset_style(self):
-        """Повертає звичайний стиль."""
         self.setStyleSheet(self.style_normal)
 
     # --- Methods ---
@@ -251,7 +259,6 @@ class HabitCard(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # ТУТ ВИКОРИСТОВУЄТЬСЯ date, ЯКИЙ БУВ ВІДСУТНІЙ
         today_str = date.today().isoformat()
         is_done = (self.habit.last_completed_date == today_str)
 

@@ -28,38 +28,59 @@ class QuestTab(BaseTab):
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
         title_layout.addWidget(title)
 
+        # Sort Combo
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["Сортувати за: Дедлайном", "Сортувати за: Пріоритетом", "Сортувати за: Статусом"])
-        self.sort_combo.setFixedWidth(200)
-        self.sort_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #1e3a8a; color: white; border: 1px solid #3b82f6;
-                border-radius: 4px; padding: 4px; font-size: 12px;
-            }
-            QComboBox::drop-down { border: none; }
-        """)
-        self.sort_combo.currentIndexChanged.connect(self.on_sort_change)
+        self.sort_combo.addItems(["Сорт: Дедлайн", "Сорт: Пріоритет", "Сорт: Статус"])
+        self.sort_combo.setFixedWidth(150)
+        self.sort_combo.setStyleSheet(
+            "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
+        self.sort_combo.currentIndexChanged.connect(self.update_list)
 
-        title_layout.addWidget(self.sort_combo)
+        # Category Filter (NEW)
+        self.cat_filter = QComboBox()
+        self.cat_filter.addItem("Всі категорії", None)
+        self.cat_filter.setFixedWidth(150)
+        self.cat_filter.setStyleSheet(
+            "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
+        self.cat_filter.currentIndexChanged.connect(self.update_list)
+
+        filters = QHBoxLayout()
+        filters.addWidget(self.sort_combo)
+        filters.addWidget(self.cat_filter)
+        title_layout.addLayout(filters)
 
         header.addLayout(title_layout)
         header.addStretch()
         self.layout.insertLayout(0, header)
 
+    def load_categories(self):
+        # Оновлює список категорій у фільтрі
+        current = self.cat_filter.currentData()
+        self.cat_filter.blockSignals(True)
+        self.cat_filter.clear()
+        self.cat_filter.addItem("Всі категорії", None)
+        cats = self.mw.storage.get_categories(self.mw.user_id)
+        for c in cats:
+            self.cat_filter.addItem(c.name, c.id)
+
+        if current:
+            idx = self.cat_filter.findData(current)
+            if idx >= 0: self.cat_filter.setCurrentIndex(idx)
+        self.cat_filter.blockSignals(False)
+
     def setup_footer(self):
         footer = QHBoxLayout()
         footer.setContentsMargins(10, 10, 10, 10)
 
-        btn_style = "QPushButton { background-color: #1e3a8a; color: white; border: 2px solid #3b82f6; border-radius: 8px; padding: 10px 15px; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #2563eb; }"
-        ai_style = "QPushButton { background-color: #7c3aed; color: white; border: 2px solid #8b5cf6; border-radius: 8px; padding: 10px 15px; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #8b5cf6; }"
-        cleanup_style = "QPushButton { background-color: #7f1d1d; color: white; border: 2px solid #b91c1c; border-radius: 8px; padding: 10px 15px; font-weight: bold; font-size: 13px; } QPushButton:hover { background-color: #991b1b; }"
+        btn_style = "QPushButton { background-color: #1e3a8a; color: white; border: 2px solid #3b82f6; border-radius: 8px; padding: 10px 15px; font-weight: bold; }"
 
         btn_add = QPushButton("➕ Нова Ціль")
         btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self.add_goal)
 
         btn_ai = QPushButton("✨ ШІ Ціль")
-        btn_ai.setStyleSheet(ai_style)
+        btn_ai.setStyleSheet(
+            "QPushButton { background-color: #7c3aed; color: white; border: 2px solid #8b5cf6; border-radius: 8px; padding: 10px 15px; font-weight: bold; }")
         btn_ai.clicked.connect(self.open_ai_dialog)
 
         btn_refresh = QPushButton("🔄 Оновити")
@@ -71,7 +92,8 @@ class QuestTab(BaseTab):
         btn_search.clicked.connect(self.open_search)
 
         btn_cleanup = QPushButton("🗑 Автовидалення")
-        btn_cleanup.setStyleSheet(cleanup_style)
+        btn_cleanup.setStyleSheet(
+            "QPushButton { background-color: #7f1d1d; color: white; border: 2px solid #b91c1c; border-radius: 8px; padding: 10px 15px; font-weight: bold; }")
         btn_cleanup.clicked.connect(self.auto_cleanup)
 
         footer.addWidget(btn_add)
@@ -84,22 +106,26 @@ class QuestTab(BaseTab):
         self.layout.addLayout(footer)
 
     def on_sort_change(self):
-        """При зміні сортування скасовуємо закріплення."""
         self.pinned_goal_id = None
-        self.should_highlight = False
         self.update_list()
 
     def update_list(self):
+        self.load_categories()  # Оновити фільтр категорій, раптом додались нові
         self.clear_list()
         goals = self.mw.storage.get_goals(self.mw.user_id)
 
-        # Сортування
+        # Filter by Category
+        cat_id = self.cat_filter.currentData()
+        if cat_id:
+            goals = [g for g in goals if g.category_id == cat_id]
+
+        # Sort
         sort_mode = self.sort_combo.currentText()
-        if "Статусом" in sort_mode:
+        if "Статус" in sort_mode:
             goals.sort(key=lambda x: x.status == GoalStatus.COMPLETED)
-        elif "Пріоритетом" in sort_mode:
+        elif "Пріоритет" in sort_mode:
             goals.sort(key=lambda x: x.priority.name)
-        elif "Дедлайном" in sort_mode:
+        elif "Дедлайн" in sort_mode:
             goals.sort(key=lambda x: x.deadline if x.deadline else "9999-99-99")
 
         if not goals:
@@ -109,9 +135,7 @@ class QuestTab(BaseTab):
             self.list_layout.addWidget(lbl)
             return
 
-        # Логіка ЗАКРІПЛЕННЯ
         target_card = None
-
         if self.pinned_goal_id:
             pinned_goal = next((g for g in goals if g.id == self.pinned_goal_id), None)
             if pinned_goal:
@@ -121,13 +145,10 @@ class QuestTab(BaseTab):
         for goal in goals:
             card = QuestCard(goal, self)
             self.list_layout.addWidget(card)
-
             if self.pinned_goal_id and goal.id == self.pinned_goal_id:
                 target_card = card
 
-        # Підсвітка
         if target_card and self.should_highlight:
-            # Викликаємо через таймер, щоб GUI встиг оновитися
             QTimer.singleShot(100, target_card.highlight_card)
             self.should_highlight = False
 
@@ -154,10 +175,9 @@ class QuestTab(BaseTab):
             self.pinned_goal_id = dialog.selected_goal_id
             self.should_highlight = True
             self.update_list()
+            QTimer.singleShot(100,
+                              lambda: self.findChild(BaseTab).layout.itemAt(1).widget().verticalScrollBar().setValue(0))
 
-            # Безпечний скрол вгору
-            if hasattr(self, 'scroll_area'):
-                QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(0))
 
     def auto_cleanup(self):
         goals = self.mw.storage.get_goals(self.mw.user_id)

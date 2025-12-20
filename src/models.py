@@ -26,13 +26,19 @@ class User:
     avatar_path: str = ""
 
 @dataclass
+class Category:
+    """Нова модель: Категорія цілі"""
+    name: str
+    color: str = "#3b82f6" # Hex колір (за замовчуванням синій)
+    user_id: str = ""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+@dataclass
 class SubGoal:
-    """Модель підцілі."""
     title: str
     goal_id: str
     is_completed: bool = False
     description: str = ""
-    # Важливо: дата створення для сортування
     created_at: datetime = field(default_factory=datetime.now)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -44,6 +50,7 @@ class LearningGoal:
     priority: GoalPriority = GoalPriority.MEDIUM
     status: GoalStatus = GoalStatus.PLANNED
     user_id: str = ""
+    category_id: Optional[str] = None  # Зв'язок з категорією
     created_at: datetime = field(default_factory=datetime.now)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
