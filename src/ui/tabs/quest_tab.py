@@ -20,18 +20,27 @@ class QuestTab(BaseTab):
     def setup_header(self):
         header = QHBoxLayout()
         header.setContentsMargins(10, 10, 10, 0)
+
         title_layout = QVBoxLayout()
         title = QLabel("Мої Цілі")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
         title_layout.addWidget(title)
 
+        # Сортування
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["Сорт: Дедлайн", "Сорт: Пріоритет", "Сорт: Статус"])
+        self.sort_combo.addItems([
+            "Сорт: Дедлайн",
+            "Сорт: Дата створення",
+            "Сорт: Пріоритет",
+            "Сорт: Статус"
+        ])
+        # Однаковий стиль та ширина з категоріями
         self.sort_combo.setFixedWidth(150)
         self.sort_combo.setStyleSheet(
             "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
         self.sort_combo.currentIndexChanged.connect(self.update_list)
 
+        # Фільтр категорій
         self.cat_filter = QComboBox()
         self.cat_filter.addItem("Всі категорії", None)
         self.cat_filter.setFixedWidth(150)
@@ -103,18 +112,32 @@ class QuestTab(BaseTab):
     def update_list(self):
         self.load_categories()
         self.clear_list()
+
+        # База повертає список (за замовчуванням created_at DESC)
         goals = self.mw.storage.get_goals(self.mw.user_id)
 
+        # Фільтр по категорії
         cat_id = self.cat_filter.currentData()
-        if cat_id: goals = [g for g in goals if g.category_id == cat_id]
+        if cat_id:
+            goals = [g for g in goals if g.category_id == cat_id]
 
+        # Сортування
         sort_mode = self.sort_combo.currentText()
-        if "Статус" in sort_mode:
-            goals.sort(key=lambda x: x.status == GoalStatus.COMPLETED)
+
+        if "Дедлайн" in sort_mode:
+            # Спочатку ті, що мають дедлайн (від найближчого), потім без дедлайну
+            goals.sort(key=lambda x: x.deadline if x.deadline else "9999-99-99")
+
         elif "Пріоритет" in sort_mode:
             goals.sort(key=lambda x: x.priority.name)
-        elif "Дедлайн" in sort_mode:
-            goals.sort(key=lambda x: x.deadline if x.deadline else "9999-99-99")
+
+        elif "Статус" in sort_mode:
+            goals.sort(key=lambda x: x.status == GoalStatus.COMPLETED)
+
+        elif "Дата створення" in sort_mode:
+            # Явно сортуємо за датою створення (нові зверху)
+            # (Хоча база вже так повертає, але для надійності)
+            goals.sort(key=lambda x: x.created_at, reverse=True)
 
         if not goals:
             lbl = QLabel("Список порожній")
@@ -124,11 +147,13 @@ class QuestTab(BaseTab):
             return
 
         target_card = None
+
+        # Логіка закріплення при пошуку
         if self.pinned_goal_id:
-            pinned = next((g for g in goals if g.id == self.pinned_goal_id), None)
-            if pinned:
-                goals.remove(pinned)
-                goals.insert(0, pinned)
+            pinned_goal = next((g for g in goals if g.id == self.pinned_goal_id), None)
+            if pinned_goal:
+                goals.remove(pinned_goal)
+                goals.insert(0, pinned_goal)
 
         for goal in goals:
             card = QuestCard(goal, self)
@@ -164,20 +189,22 @@ class QuestTab(BaseTab):
             self.should_highlight = True
             self.update_list()
 
-            # ВИПРАВЛЕНО: Використовуємо self.scroll_area, створений в BaseTab
             if hasattr(self, 'scroll_area'):
                 QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(0))
 
     def auto_cleanup(self):
         goals = self.mw.storage.get_goals(self.mw.user_id)
         completed_goals = [g for g in goals if g.status == GoalStatus.COMPLETED]
+
         if not completed_goals:
             QMessageBox.information(self.mw, "Автовидалення", "Немає виконаних цілей.")
             return
 
         count = len(completed_goals)
-        reply = QMessageBox.question(self.mw, "Автовидалення", f"Видалити всі виконані цілі ({count} шт.)?",
+        reply = QMessageBox.question(self.mw, "Автовидалення",
+                                     f"Видалити всі виконані цілі ({count} шт.)?",
                                      QMessageBox.Yes | QMessageBox.No)
+
         if reply == QMessageBox.Yes:
             for g in completed_goals:
                 self.mw.storage.delete_goal(g.id)
