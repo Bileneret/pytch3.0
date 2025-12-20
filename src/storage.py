@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 from datetime import datetime, date, timedelta
 from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit, SubGoal, Category, Course, CourseType, \
     CourseStatus, Topic
@@ -70,6 +71,125 @@ class StorageService:
         conn.commit()
         conn.close()
 
+    # --- IMPORT / EXPORT METHODS ---
+
+    def export_user_data(self, user_id: str) -> dict:
+        """Експортує всі дані користувача у словник."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        data = {"version": 1, "export_date": datetime.now().isoformat()}
+
+        # 1. User Info (Optional, mainly for stats)
+        c.execute("SELECT * FROM users WHERE id=?", (user_id,))
+        user_row = c.fetchone()
+        if user_row:
+            data["user"] = dict(user_row)
+
+        # 2. Categories
+        c.execute("SELECT * FROM categories WHERE user_id=?", (user_id,))
+        data["categories"] = [dict(r) for r in c.fetchall()]
+
+        # 3. Topics
+        c.execute("SELECT * FROM topics WHERE user_id=?", (user_id,))
+        data["topics"] = [dict(r) for r in c.fetchall()]
+
+        # 4. Goals & Subgoals
+        c.execute("SELECT * FROM goals WHERE user_id=?", (user_id,))
+        goals = [dict(r) for r in c.fetchall()]
+        data["goals"] = goals
+
+        goal_ids = [g['id'] for g in goals]
+        if goal_ids:
+            placeholders = ','.join(['?'] * len(goal_ids))
+            c.execute(f"SELECT * FROM subgoals WHERE goal_id IN ({placeholders})", goal_ids)
+            data["subgoals"] = [dict(r) for r in c.fetchall()]
+        else:
+            data["subgoals"] = []
+
+        # 5. Habits & Logs
+        c.execute("SELECT * FROM habits WHERE user_id=?", (user_id,))
+        habits = [dict(r) for r in c.fetchall()]
+        data["habits"] = habits
+
+        habit_ids = [h['id'] for h in habits]
+        if habit_ids:
+            placeholders = ','.join(['?'] * len(habit_ids))
+            c.execute(f"SELECT * FROM habit_logs WHERE habit_id IN ({placeholders})", habit_ids)
+            data["habit_logs"] = [dict(r) for r in c.fetchall()]
+        else:
+            data["habit_logs"] = []
+
+        # 6. Courses
+        c.execute("SELECT * FROM courses WHERE user_id=?", (user_id,))
+        data["courses"] = [dict(r) for r in c.fetchall()]
+
+        conn.close()
+        return data
+
+    def import_user_data(self, data: dict, user_id: str):
+        """Імпортує дані зі словника в БД, прив'язуючи їх до поточного user_id."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        def upsert(table, rows):
+            if not rows: return
+
+            # --- ВАЖЛИВА ЗМІНА: ПЕРЕПИСУЄМО user_id ---
+            processed_rows = []
+            for row in rows:
+                new_row = row.copy()
+                # Якщо в таблиці є поле user_id, підставляємо поточного користувача
+                if 'user_id' in new_row:
+                    new_row['user_id'] = user_id
+                processed_rows.append(new_row)
+            # -------------------------------------------
+
+            keys = processed_rows[0].keys()
+            columns = ', '.join(keys)
+            placeholders = ', '.join(['?'] * len(keys))
+            sql = f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})"
+
+            for row in processed_rows:
+                c.execute(sql, list(row.values()))
+
+        try:
+            # Import Categories
+            upsert("categories", data.get("categories", []))
+
+            # Import Topics
+            upsert("topics", data.get("topics", []))
+
+            # Import Goals
+            upsert("goals", data.get("goals", []))
+
+            # Import Subgoals (тут user_id немає, прив'язка йде через goal_id, який ми зберегли)
+            upsert("subgoals", data.get("subgoals", []))
+
+            # Import Habits
+            upsert("habits", data.get("habits", []))
+
+            # Import Habit Logs
+            upsert("habit_logs", data.get("habit_logs", []))
+
+            # Import Courses
+            upsert("courses", data.get("courses", []))
+
+            # Update User Stats if present
+            if "user" in data and data["user"]:
+                u = data["user"]
+                if "total_completed_goals" in u:
+                    c.execute("UPDATE users SET total_completed_goals=? WHERE id=?",
+                              (u["total_completed_goals"], user_id))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+
     # --- TOPICS ---
     def get_topics(self, user_id: str):
         conn = sqlite3.connect(self.db_path)
@@ -82,7 +202,6 @@ class StorageService:
         for r in rows:
             topics.append(Topic(id=r[0], user_id=r[1], name=r[2]))
 
-        # Якщо тем немає, створюємо дефолтні
         if not topics:
             default_names = ["Навчання", "Спорт", "Творчість", "Кар'єра"]
             for name in default_names:

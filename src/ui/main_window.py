@@ -1,11 +1,11 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QStackedWidget, QLabel, QFrame, \
-    QGridLayout
+    QGridLayout, QMessageBox, QFileDialog
 from PyQt5.QtCore import Qt, pyqtSignal
+import json
 from src.ui.tabs.quest_tab import QuestTab
 from src.ui.tabs.habit_tab import HabitTab
 from src.ui.tabs.stats_tab import StatsTab
 from src.ui.tabs.calendar_tab import CalendarTab
-# Оновлено імпорт (клас ми перейменували в education_tab.py, або файл теж перейменуйте за бажанням)
 from src.ui.tabs.education_tab import DevelopmentTab
 
 
@@ -76,7 +76,6 @@ class MainWindow(QMainWindow):
         self.btn_quests.setStyleSheet(btn_style)
         self.btn_quests.clicked.connect(lambda: self.switch_tab(0))
 
-        # ОНОВЛЕНО КНОПКУ
         self.btn_development = QPushButton("🚀 Розвиток")
         self.btn_development.setCheckable(True)
         self.btn_development.setStyleSheet(btn_style)
@@ -98,17 +97,48 @@ class MainWindow(QMainWindow):
         self.btn_calendar.clicked.connect(lambda: self.switch_tab(4))
 
         side_layout.addWidget(self.btn_quests)
-        side_layout.addWidget(self.btn_development) # Було btn_education
+        side_layout.addWidget(self.btn_development)
         side_layout.addWidget(self.btn_habits)
         side_layout.addWidget(self.btn_stats)
         side_layout.addWidget(self.btn_calendar)
 
         side_layout.addStretch()
 
+        # --- IMPORT / EXPORT BUTTONS ---
+        data_btns_layout = QHBoxLayout()
+        data_btns_layout.setSpacing(5)
+
+        gray_btn_style = """
+            QPushButton { 
+                background-color: #374151; 
+                color: #e5e7eb; 
+                border-radius: 6px; 
+                padding: 8px; 
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #4b5563; }
+        """
+
+        self.btn_import = QPushButton("Імпорт")
+        self.btn_import.setStyleSheet(gray_btn_style)
+        self.btn_import.clicked.connect(self.import_data)
+
+        self.btn_export = QPushButton("Експорт")
+        self.btn_export.setStyleSheet(gray_btn_style)
+        self.btn_export.clicked.connect(self.export_data)
+
+        data_btns_layout.addWidget(self.btn_import)
+        data_btns_layout.addWidget(self.btn_export)
+
+        side_layout.addLayout(data_btns_layout)
+
+        # --- LOGOUT BUTTON ---
         btn_logout = QPushButton("Вийти")
         btn_logout.setStyleSheet(
             "background-color: #7f1d1d; color: white; border-radius: 6px; padding: 12px; font-weight: bold;")
-        btn_logout.clicked.connect(self.logout_requested.emit)
+        # Підключаємо до методу підтвердження, а не напряму
+        btn_logout.clicked.connect(self.confirm_logout)
         side_layout.addWidget(btn_logout)
 
         main_layout.addWidget(sidebar)
@@ -118,7 +148,6 @@ class MainWindow(QMainWindow):
         self.stack.setContentsMargins(5, 5, 5, 5)
 
         self.tab_quests = QuestTab(self.stack, self)
-        # Оновлено ініціалізацію
         self.tab_development = DevelopmentTab(self.stack, self)
         self.tab_habits = HabitTab(self.stack, self)
         self.tab_stats = StatsTab(self.stack, self)
@@ -143,5 +172,62 @@ class MainWindow(QMainWindow):
         self.btn_stats.setChecked(index == 3)
         self.btn_calendar.setChecked(index == 4)
 
+        if index == 0: self.tab_quests.update_list()
+        if index == 1: self.tab_development.update_list()
+        if index == 2: self.tab_habits.load_data()
         if index == 3: self.tab_stats.update_charts()
         if index == 4: self.tab_calendar.highlight_dates()
+
+    def confirm_logout(self):
+        """Діалог підтвердження виходу."""
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження виходу",
+            "Ви дійсно хочете вийти з акаунту?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.logout_requested.emit()
+
+    def export_data(self):
+        """Експорт даних у JSON."""
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Експорт даних", "lgm_backup.json", "JSON Files (*.json);;All Files (*)", options=options
+        )
+        if file_path:
+            try:
+                data = self.storage.export_user_data(self.user_id)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+                QMessageBox.information(self, "Успіх", "Дані успішно експортовано!")
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", f"Не вдалося експортувати дані:\n{e}")
+
+    def import_data(self):
+        """Імпорт даних з JSON."""
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Імпорт даних", "", "JSON Files (*.json);;All Files (*)", options=options
+        )
+        if file_path:
+            reply = QMessageBox.question(
+                self, "Імпорт даних",
+                "Імпорт об'єднає нові дані з поточними.\nПродовжити?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                self.storage.import_user_data(data, self.user_id)
+                QMessageBox.information(self, "Успіх", "Дані успішно імпортовано!")
+
+                # Оновлюємо всі вкладки
+                self.switch_tab(self.stack.currentIndex())
+
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", f"Не вдалося імпортувати дані:\n{e}")
