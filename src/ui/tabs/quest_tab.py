@@ -11,10 +11,8 @@ from ...models import GoalStatus
 class QuestTab(BaseTab):
     def __init__(self, parent, main_window):
         super().__init__(parent, main_window)
-
         self.pinned_goal_id = None
         self.should_highlight = False
-
         self.setup_header()
         self.setup_footer()
         self.update_list()
@@ -22,13 +20,11 @@ class QuestTab(BaseTab):
     def setup_header(self):
         header = QHBoxLayout()
         header.setContentsMargins(10, 10, 10, 0)
-
         title_layout = QVBoxLayout()
         title = QLabel("Мої Цілі")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
         title_layout.addWidget(title)
 
-        # Sort Combo
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Сорт: Дедлайн", "Сорт: Пріоритет", "Сорт: Статус"])
         self.sort_combo.setFixedWidth(150)
@@ -36,7 +32,6 @@ class QuestTab(BaseTab):
             "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
         self.sort_combo.currentIndexChanged.connect(self.update_list)
 
-        # Category Filter (NEW)
         self.cat_filter = QComboBox()
         self.cat_filter.addItem("Всі категорії", None)
         self.cat_filter.setFixedWidth(150)
@@ -54,7 +49,6 @@ class QuestTab(BaseTab):
         self.layout.insertLayout(0, header)
 
     def load_categories(self):
-        # Оновлює список категорій у фільтрі
         current = self.cat_filter.currentData()
         self.cat_filter.blockSignals(True)
         self.cat_filter.clear()
@@ -62,7 +56,6 @@ class QuestTab(BaseTab):
         cats = self.mw.storage.get_categories(self.mw.user_id)
         for c in cats:
             self.cat_filter.addItem(c.name, c.id)
-
         if current:
             idx = self.cat_filter.findData(current)
             if idx >= 0: self.cat_filter.setCurrentIndex(idx)
@@ -71,7 +64,6 @@ class QuestTab(BaseTab):
     def setup_footer(self):
         footer = QHBoxLayout()
         footer.setContentsMargins(10, 10, 10, 10)
-
         btn_style = "QPushButton { background-color: #1e3a8a; color: white; border: 2px solid #3b82f6; border-radius: 8px; padding: 10px 15px; font-weight: bold; }"
 
         btn_add = QPushButton("➕ Нова Ціль")
@@ -102,7 +94,6 @@ class QuestTab(BaseTab):
         footer.addWidget(btn_search)
         footer.addStretch()
         footer.addWidget(btn_cleanup)
-
         self.layout.addLayout(footer)
 
     def on_sort_change(self):
@@ -110,16 +101,13 @@ class QuestTab(BaseTab):
         self.update_list()
 
     def update_list(self):
-        self.load_categories()  # Оновити фільтр категорій, раптом додались нові
+        self.load_categories()
         self.clear_list()
         goals = self.mw.storage.get_goals(self.mw.user_id)
 
-        # Filter by Category
         cat_id = self.cat_filter.currentData()
-        if cat_id:
-            goals = [g for g in goals if g.category_id == cat_id]
+        if cat_id: goals = [g for g in goals if g.category_id == cat_id]
 
-        # Sort
         sort_mode = self.sort_combo.currentText()
         if "Статус" in sort_mode:
             goals.sort(key=lambda x: x.status == GoalStatus.COMPLETED)
@@ -137,10 +125,10 @@ class QuestTab(BaseTab):
 
         target_card = None
         if self.pinned_goal_id:
-            pinned_goal = next((g for g in goals if g.id == self.pinned_goal_id), None)
-            if pinned_goal:
-                goals.remove(pinned_goal)
-                goals.insert(0, pinned_goal)
+            pinned = next((g for g in goals if g.id == self.pinned_goal_id), None)
+            if pinned:
+                goals.remove(pinned)
+                goals.insert(0, pinned)
 
         for goal in goals:
             card = QuestCard(goal, self)
@@ -175,23 +163,21 @@ class QuestTab(BaseTab):
             self.pinned_goal_id = dialog.selected_goal_id
             self.should_highlight = True
             self.update_list()
-            QTimer.singleShot(100,
-                              lambda: self.findChild(BaseTab).layout.itemAt(1).widget().verticalScrollBar().setValue(0))
 
+            # ВИПРАВЛЕНО: Використовуємо self.scroll_area, створений в BaseTab
+            if hasattr(self, 'scroll_area'):
+                QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(0))
 
     def auto_cleanup(self):
         goals = self.mw.storage.get_goals(self.mw.user_id)
         completed_goals = [g for g in goals if g.status == GoalStatus.COMPLETED]
-
         if not completed_goals:
             QMessageBox.information(self.mw, "Автовидалення", "Немає виконаних цілей.")
             return
 
         count = len(completed_goals)
-        reply = QMessageBox.question(self.mw, "Автовидалення",
-                                     f"Видалити всі виконані цілі ({count} шт.)?",
+        reply = QMessageBox.question(self.mw, "Автовидалення", f"Видалити всі виконані цілі ({count} шт.)?",
                                      QMessageBox.Yes | QMessageBox.No)
-
         if reply == QMessageBox.Yes:
             for g in completed_goals:
                 self.mw.storage.delete_goal(g.id)

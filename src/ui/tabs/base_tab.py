@@ -10,15 +10,19 @@ class BaseTab(QWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.mw = main_window
+
+        # Основний лейаут вкладки
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
+
         self.create_scroll_area()
 
     def create_scroll_area(self):
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        # ЗБЕРІГАЄМО scroll_area В self, ЩОБ МАТИ ДОСТУП З НАСЛІДНИКІВ
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
         # Прозорий фон скролу
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         container = QWidget()
         container.setStyleSheet("background: transparent;")
@@ -29,8 +33,8 @@ class BaseTab(QWidget):
         self.list_layout.setSpacing(10)
         self.list_layout.setContentsMargins(5, 5, 5, 20)
 
-        scroll.setWidget(container)
-        self.layout.addWidget(scroll)
+        self.scroll_area.setWidget(container)
+        self.layout.addWidget(self.scroll_area)
 
     def clear_list(self):
         while self.list_layout.count():

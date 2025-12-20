@@ -193,6 +193,13 @@ class StorageService:
             habits.append(h)
         return habits
 
+    def delete_habit(self, habit_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("DELETE FROM habits WHERE id = ?", (habit_id,))
+        conn.commit()
+        conn.close()
+
     # --- SUBGOALS ---
     def save_subgoal(self, subgoal: SubGoal):
         conn = sqlite3.connect(self.db_path)

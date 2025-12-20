@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QDate, Qt
 from datetime import datetime
-from src.models import LearningGoal, GoalPriority
+from src.models import LearningGoal, GoalPriority, GoalStatus
 from .category_dialog import CategoryDialog
 
 
@@ -15,7 +15,7 @@ class EditGoalDialog(QDialog):
         self.user_id = user_id if user_id else (goal.user_id if goal else None)
         self.storage = storage
         self.setWindowTitle("Редагувати ціль" if goal else "Нова ціль")
-        self.resize(400, 500)
+        self.resize(400, 550)  # Трохи збільшили висоту
         self.init_ui()
 
     def init_ui(self):
@@ -58,7 +58,19 @@ class EditGoalDialog(QDialog):
             if idx >= 0: self.priority_combo.setCurrentIndex(idx)
         layout.addWidget(self.priority_combo)
 
-        # Category (NEW)
+        # Status (НОВЕ ПОЛЕ)
+        layout.addWidget(QLabel("Статус:"))
+        self.status_combo = QComboBox()
+        for s in GoalStatus:
+            self.status_combo.addItem(s.value, s)
+
+        # За замовчуванням PLANNED, якщо редагуємо - ставимо поточний
+        if self.goal:
+            idx = self.status_combo.findData(self.goal.status)
+            if idx >= 0: self.status_combo.setCurrentIndex(idx)
+        layout.addWidget(self.status_combo)
+
+        # Category
         layout.addWidget(QLabel("Категорія:"))
         cat_layout = QHBoxLayout()
         self.category_combo = QComboBox()
@@ -85,9 +97,6 @@ class EditGoalDialog(QDialog):
                 self.deadline_edit.setDate(QDate.currentDate())
         else:
             self.deadline_edit.setDate(QDate.currentDate())
-            # Hack: use a checkbox or check state to signify no deadline,
-            # but for simplicity, let's assume checkbox logic is external or deadline is always set if user doesn't clear it.
-            # Here we just set current date.
         layout.addWidget(self.deadline_edit)
 
         # Save Button
@@ -124,15 +133,15 @@ class EditGoalDialog(QDialog):
 
         desc = self.desc_input.toPlainText()
         priority = self.priority_combo.currentData()
+        status = self.status_combo.currentData()
         category_id = self.category_combo.currentData()
-
-        # Deadline logic: just save as string YYYY-MM-DD
         deadline_str = self.deadline_edit.date().toString("yyyy-MM-dd")
 
         if self.goal:
             self.goal.title = title
             self.goal.description = desc
             self.goal.priority = priority
+            self.goal.status = status  # Оновлюємо статус
             self.goal.deadline = deadline_str
             self.goal.category_id = category_id
             self.storage.save_goal(self.goal)
@@ -141,6 +150,7 @@ class EditGoalDialog(QDialog):
                 title=title,
                 description=desc,
                 priority=priority,
+                status=status,  # Зберігаємо статус
                 deadline=deadline_str,
                 user_id=self.user_id,
                 category_id=category_id
