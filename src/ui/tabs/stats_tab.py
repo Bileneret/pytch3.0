@@ -6,13 +6,14 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
 from datetime import datetime, date
 from collections import Counter
+import warnings  # Додано для придушення варнінгів
 
 # Налаштування кольорів
-BG_DARK = '#0b0f19'  # Фон вікна
-BG_CARD = '#111827'  # Фон карток/графіків
-TEXT_MAIN = '#e0e0e0'  # Основний текст
-TEXT_SUB = '#94a3b8'  # Допоміжний текст
-BORDER = '#1e3a8a'  # Бордери
+BG_DARK = '#0b0f19'
+BG_CARD = '#111827'
+TEXT_MAIN = '#e0e0e0'
+TEXT_SUB = '#94a3b8'
+BORDER = '#1e3a8a'
 
 # Глобальний стиль matplotlib
 plt.style.use('dark_background')
@@ -37,31 +38,27 @@ class StatsTab(BaseTab):
         super().__init__(parent, main_window)
         self.mw = main_window
 
-        # Налаштування скролу базової вкладки
         self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self.list_layout.setContentsMargins(20, 20, 20, 40)  # Зовнішні відступи сторінки
+        self.list_layout.setContentsMargins(20, 20, 20, 40)
         self.list_layout.setSpacing(20)
 
         self.setup_ui()
         self.update_charts()
 
     def setup_ui(self):
-        # Заголовок
         header_lbl = QLabel("Аналітика та Статистика")
         header_lbl.setStyleSheet("font-size: 26px; font-weight: bold; color: white; margin-bottom: 10px;")
         self.list_layout.addWidget(header_lbl)
 
-        # Вкладки (Tabs)
         self.tabs = QTabWidget()
-        # ВИПРАВЛЕНО: Збільшено padding та додано min-width для вкладок
         self.tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border: 0; background: transparent; }}
             QTabBar::tab {{ 
                 background: {BG_CARD}; 
                 color: {TEXT_SUB}; 
-                padding: 12px 50px; /* Збільшено горизонтальний відступ */
+                padding: 12px 50px; 
                 margin-right: 10px; 
-                min-width: 100px;   /* Мінімальна ширина вкладки */
+                min-width: 100px;
                 border: 1px solid {BORDER};
                 border-top-left-radius: 8px; 
                 border-top-right-radius: 8px;
@@ -83,7 +80,6 @@ class StatsTab(BaseTab):
 
         self.list_layout.addWidget(self.tabs)
 
-        # Лейаути сторінок
         self.goals_layout = QVBoxLayout(self.goals_page)
         self.goals_layout.setSpacing(30)
         self.goals_layout.setContentsMargins(0, 20, 0, 20)
@@ -93,13 +89,9 @@ class StatsTab(BaseTab):
         self.habits_layout.setContentsMargins(0, 20, 0, 20)
 
     def update_charts(self):
-        # Очищення старих віджетів
         self._clear_layout(self.goals_layout)
         self._clear_layout(self.habits_layout)
-
-        # Очищення пам'яті matplotlib
         plt.close('all')
-
         self.render_goals_stats()
         self.render_habits_stats()
 
@@ -120,7 +112,6 @@ class StatsTab(BaseTab):
             self.goals_layout.addWidget(QLabel("Немає даних", alignment=Qt.AlignCenter))
             return
 
-        # 1. KPI Cards
         total = len(goals)
         completed = sum(1 for g in goals if g.status == GoalStatus.COMPLETED)
         in_progress = sum(1 for g in goals if g.status == GoalStatus.IN_PROGRESS)
@@ -133,23 +124,19 @@ class StatsTab(BaseTab):
         kpi_row.addWidget(self.create_kpi("В процесі", str(in_progress), "#facc15"))
         self.goals_layout.addLayout(kpi_row)
 
-        # 2. Charts Grid
         grid = QGridLayout()
         grid.setSpacing(20)
 
-        # Status Pie
         counts = [completed, in_progress, total - completed - in_progress]
         labels = ["Виконано", "В процесі", "Заплановано"]
         colors = ["#4ade80", "#facc15", "#94a3b8"]
         grid.addWidget(self.create_chart_box("Статус виконання", self.plot_pie(counts, labels, colors)), 0, 0)
 
-        # Priority Bar
         p_counts = Counter(g.priority.value for g in goals)
         p_labels = ["Низький", "Середній", "Високий", "Критичний"]
         p_vals = [p_counts.get(l, 0) for l in p_labels]
         grid.addWidget(self.create_chart_box("Пріоритети", self.plot_bar(p_labels, p_vals, "#8b5cf6")), 0, 1)
 
-        # Categories Donut
         cats = self.mw.storage.get_categories(self.mw.user_id)
         cat_map = {c.id: (c.name, c.color) for c in cats}
         c_counts = Counter()
@@ -168,7 +155,6 @@ class StatsTab(BaseTab):
 
         grid.addWidget(self.create_chart_box("Категорії", self.plot_donut(c_vals, c_labels, c_colors)), 1, 0)
 
-        # Timeline Line
         dates = []
         for g in goals:
             if g.deadline:
@@ -191,7 +177,6 @@ class StatsTab(BaseTab):
             self.habits_layout.addWidget(QLabel("Немає даних", alignment=Qt.AlignCenter))
             return
 
-        # 1. KPI
         total = len(habits)
         best = max((h.streak for h in habits), default=0)
         today = date.today().isoformat()
@@ -204,17 +189,14 @@ class StatsTab(BaseTab):
         kpi_row.addWidget(self.create_kpi("Зроблено сьогодні", f"{done}/{total}", "#4ade80"))
         self.habits_layout.addLayout(kpi_row)
 
-        # 2. Charts
         grid = QGridLayout()
         grid.setSpacing(20)
 
-        # Top Streaks
         top = sorted(habits, key=lambda h: h.streak, reverse=True)[:5]
         names = [h.title for h in top]
         vals = [h.streak for h in top]
         grid.addWidget(self.create_chart_box("Топ серій", self.plot_hbar(names, vals, "#2dd4bf")), 0, 0)
 
-        # Today Pie
         grid.addWidget(self.create_chart_box("Прогрес дня",
                                              self.plot_pie([done, total - done], ["Виконано", "Залишилось"],
                                                            ["#4ade80", "#ef4444"])), 0, 1)
@@ -265,10 +247,19 @@ class StatsTab(BaseTab):
         canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         canvas.setMinimumHeight(300)
         l.addWidget(canvas)
-
         return box
 
     # --- PLOTTING ---
+    def _finalize_plot(self, fig):
+        # ІГНОРУВАННЯ ПОМИЛОК LAYOUT
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                fig.tight_layout(pad=3.0)
+            except Exception:
+                pass  # Якщо не вийшло - залишаємо як є
+        return fig
+
     def plot_pie(self, values, labels, colors):
         fig, ax = plt.subplots()
         data = [(v, l, c) for v, l, c in zip(values, labels, colors) if v > 0]
@@ -279,9 +270,7 @@ class StatsTab(BaseTab):
             plt.setp(autotexts, weight="bold", color="black")
         else:
             ax.text(0.5, 0.5, "Немає даних", ha='center', color=TEXT_SUB)
-
-        fig.tight_layout(pad=3.0)  # ВАЖЛИВО: Відступи, щоб текст не обрізався
-        return fig
+        return self._finalize_plot(fig)
 
     def plot_donut(self, values, labels, colors):
         fig, ax = plt.subplots()
@@ -293,24 +282,20 @@ class StatsTab(BaseTab):
             ax.add_artist(plt.Circle((0, 0), 0.65, fc=BG_CARD))
         else:
             ax.text(0.5, 0.5, "Немає даних", ha='center', color=TEXT_SUB)
-
-        fig.tight_layout(pad=3.0)
-        return fig
+        return self._finalize_plot(fig)
 
     def plot_bar(self, cats, vals, color):
         fig, ax = plt.subplots()
         bars = ax.bar(cats, vals, color=color, alpha=0.9)
         ax.bar_label(bars, color=TEXT_MAIN, padding=3)
-        fig.tight_layout(pad=3.0)
-        return fig
+        return self._finalize_plot(fig)
 
     def plot_hbar(self, cats, vals, color):
         fig, ax = plt.subplots()
         bars = ax.barh(cats, vals, color=color, alpha=0.9)
         ax.bar_label(bars, color=TEXT_MAIN, padding=3)
         ax.invert_yaxis()
-        fig.tight_layout(pad=3.0)
-        return fig
+        return self._finalize_plot(fig)
 
     def plot_line(self, cats, vals, color):
         fig, ax = plt.subplots()
@@ -318,5 +303,4 @@ class StatsTab(BaseTab):
         ax.fill_between(cats, vals, color=color, alpha=0.2)
         for x, y in zip(cats, vals):
             ax.annotate(str(y), (x, y), textcoords="offset points", xytext=(0, 8), ha='center', color=TEXT_MAIN)
-        fig.tight_layout(pad=3.0)
-        return fig
+        return self._finalize_plot(fig)

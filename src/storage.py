@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit, SubGoal, Category
 
 
@@ -10,45 +10,56 @@ class StorageService:
         self._init_db()
 
     def _init_db(self):
+        """Ініціалізація бази даних та створення таблиць."""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
+        # 1. USERS
         c.execute('''CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY, username TEXT, password_hash TEXT,
             total_completed_goals INTEGER, avatar_path TEXT, created_at TEXT
         )''')
 
-        # ОНОВЛЕНО: додано category_id
-        # Якщо таблиця вже існує без цієї колонки, код нижче додасть її
+        # 2. CATEGORIES
+        c.execute('''CREATE TABLE IF NOT EXISTS categories (
+            id TEXT PRIMARY KEY, user_id TEXT, name TEXT, color TEXT
+        )''')
+
+        # 3. GOALS
         c.execute('''CREATE TABLE IF NOT EXISTS goals (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, description TEXT,
             deadline TEXT, priority TEXT, status TEXT, created_at TEXT, category_id TEXT
         )''')
 
-        # Спроба міграції (якщо база стара)
+        # Міграція для goals (якщо база стара)
         try:
             c.execute("ALTER TABLE goals ADD COLUMN category_id TEXT")
         except sqlite3.OperationalError:
-            pass  # Колонка вже існує
+            pass
 
-        c.execute('''CREATE TABLE IF NOT EXISTS habits (
-            id TEXT PRIMARY KEY, user_id TEXT, title TEXT, streak INTEGER, last_completed_date TEXT
-        )''')
-
+            # 4. SUBGOALS
         c.execute('''CREATE TABLE IF NOT EXISTS subgoals (
             id TEXT PRIMARY KEY, goal_id TEXT, title TEXT, is_completed INTEGER, description TEXT, created_at TEXT
         )''')
 
-        # НОВА ТАБЛИЦЯ: Категорії
-        c.execute('''CREATE TABLE IF NOT EXISTS categories (
-            id TEXT PRIMARY KEY, user_id TEXT, name TEXT, color TEXT
+        # 5. HABITS
+        c.execute('''CREATE TABLE IF NOT EXISTS habits (
+            id TEXT PRIMARY KEY, user_id TEXT, title TEXT, streak INTEGER, last_completed_date TEXT
+        )''')
+
+        # 6. HABIT LOGS (Історія виконань звичок)
+        c.execute('''CREATE TABLE IF NOT EXISTS habit_logs (
+            habit_id TEXT, date TEXT,
+            PRIMARY KEY (habit_id, date)
         )''')
 
         conn.commit()
         conn.close()
 
-    # --- USER ---
+    # ==========================
+    # USER METHODS
+    # ==========================
     def get_user_by_username(self, username: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -92,7 +103,9 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # --- CATEGORIES ---
+    # ==========================
+    # CATEGORY METHODS
+    # ==========================
     def save_category(self, category: Category):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -116,34 +129,38 @@ class StorageService:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
-        # Також прибираємо посилання на категорію в цілях
         c.execute("UPDATE goals SET category_id = NULL WHERE category_id = ?", (cat_id,))
         conn.commit()
         conn.close()
 
-    # --- GOALS ---
+    # ==========================
+    # GOAL METHODS
+    # ==========================
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("SELECT 1 FROM goals WHERE id = ?", (goal.id,))
         exists = c.fetchone()
 
+        deadline_str = str(goal.deadline) if goal.deadline else None
+
         if exists:
             c.execute(
                 '''UPDATE goals SET title=?, description=?, deadline=?, priority=?, status=?, category_id=? WHERE id=?''',
-                (goal.title, goal.description, str(goal.deadline) if goal.deadline else None,
+                (goal.title, goal.description, deadline_str,
                  goal.priority.name, goal.status.name, goal.category_id, goal.id))
         else:
             c.execute('''INSERT INTO goals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                       (goal.id, goal.user_id, goal.title, goal.description,
-                       str(goal.deadline) if goal.deadline else None,
-                       goal.priority.name, goal.status.name, str(goal.created_at), goal.category_id))
+                       deadline_str, goal.priority.name, goal.status.name,
+                       str(goal.created_at), goal.category_id))
         conn.commit()
         conn.close()
 
     def get_goals(self, user_id: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        # Сортування за датою створення (найновіші зверху)
         c.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         rows = c.fetchall()
         conn.close()
@@ -155,9 +172,17 @@ class StorageService:
             g.deadline = r[4]
             if r[5] in GoalPriority.__members__: g.priority = GoalPriority[r[5]]
             if r[6] in GoalStatus.__members__: g.status = GoalStatus[r[6]]
-            # r[7] - created_at, r[8] - category_id
+            # created_at = r[7]
             if len(r) > 8:
                 g.category_id = r[8]
+
+            # Відновлюємо created_at об'єкт, якщо треба (не обов'язково для відображення, але корисно для сортування)
+            if r[7]:
+                try:
+                    g.created_at = datetime.fromisoformat(r[7])
+                except:
+                    pass
+
             goals.append(g)
         return goals
 
@@ -169,7 +194,9 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # --- HABITS ---
+    # ==========================
+    # HABIT METHODS
+    # ==========================
     def save_habit(self, habit: Habit):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -197,10 +224,81 @@ class StorageService:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("DELETE FROM habits WHERE id = ?", (habit_id,))
+        c.execute("DELETE FROM habit_logs WHERE habit_id = ?", (habit_id,))
         conn.commit()
         conn.close()
 
-    # --- SUBGOALS ---
+    def toggle_habit_date(self, habit_id: str, date_str: str) -> bool:
+        """Перемикає статус виконання звички на конкретну дату. Повертає True, якщо стало виконано."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        # Перевіряємо, чи є запис
+        c.execute("SELECT 1 FROM habit_logs WHERE habit_id = ? AND date = ?", (habit_id, date_str))
+        exists = c.fetchone()
+
+        is_completed = False
+        if exists:
+            c.execute("DELETE FROM habit_logs WHERE habit_id = ? AND date = ?", (habit_id, date_str))
+        else:
+            c.execute("INSERT INTO habit_logs VALUES (?, ?)", (habit_id, date_str))
+            is_completed = True
+
+        conn.commit()
+
+        # Перераховуємо стрік (Серію)
+        self._recalc_streak(c, habit_id)
+
+        conn.close()
+        return is_completed
+
+    def get_habit_logs(self, habit_id: str, start_date: str, end_date: str):
+        """Повертає список дат виконання за певний період (для відображення в таблиці)."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT date FROM habit_logs WHERE habit_id = ? AND date BETWEEN ? AND ?",
+                  (habit_id, start_date, end_date))
+        rows = c.fetchall()
+        conn.close()
+        return {r[0] for r in rows}  # Повертаємо множину (set) дат
+
+    def _recalc_streak(self, cursor, habit_id):
+        """Внутрішній метод: Перерахунок серії (streak) на основі логів."""
+        # Отримуємо всі дати виконань, відсортовані від найновішої до найстарішої
+        cursor.execute("SELECT date FROM habit_logs WHERE habit_id = ? ORDER BY date DESC", (habit_id,))
+        rows = cursor.fetchall()
+
+        dates = [datetime.strptime(r[0], "%Y-%m-%d").date() for r in rows]
+
+        if not dates:
+            streak = 0
+            last_date = ""
+        else:
+            today = date.today()
+            streak = 0
+            # Перевіряємо, чи не перервана серія (якщо останній запис був давніше, ніж вчора)
+            if dates[0] < today - timedelta(days=1):
+                streak = 0
+            else:
+                # Рахуємо підряд
+                current_check = dates[0]
+                streak = 1
+                for i in range(1, len(dates)):
+                    if dates[i] == current_check - timedelta(days=1):
+                        streak += 1
+                        current_check = dates[i]
+                    else:
+                        break
+            last_date = dates[0].isoformat()
+
+        # Оновлюємо основну таблицю habits з новими даними
+        cursor.execute("UPDATE habits SET streak = ?, last_completed_date = ? WHERE id = ?",
+                       (streak, last_date, habit_id))
+        cursor.connection.commit()
+
+    # ==========================
+    # SUBGOAL METHODS
+    # ==========================
     def save_subgoal(self, subgoal: SubGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -232,6 +330,7 @@ class StorageService:
                     pass
             subgoals.append(s)
 
+        # Сортуємо: невиконані зверху, потім за часом створення
         subgoals.sort(key=lambda x: (x.is_completed, x.created_at))
         return subgoals
 

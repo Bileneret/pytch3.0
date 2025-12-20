@@ -1,10 +1,11 @@
 import hashlib
 import random
+import sqlite3
 from datetime import datetime, timedelta
 from src.storage import StorageService
 from src.models import User, LearningGoal, GoalPriority, GoalStatus, SubGoal, Habit, Category
 
-# Списки слів для генерації назв цілей
+# Списки слів
 VERBS = [
     "Вивчити", "Зробити", "Написати", "Купити", "Відвідати", "Завершити",
     "Підготувати", "Організувати", "Прочитати", "Переробити", "Проаналізувати",
@@ -23,7 +24,6 @@ CONTEXTS = [
     "для підвищення", "на завтра", "для курсової"
 ]
 
-# Список звичок
 HABITS_LIST = [
     "Пити воду (2л)", "Зарядка вранці", "Читання 30 хв", "Медитація",
     "Коміт на GitHub", "Англійська (Duolingo)", "Не їсти цукор", "Лягати до 23:00",
@@ -38,9 +38,11 @@ def hash_password(password: str) -> str:
 
 def seed_data():
     print("🌱 Починаємо ГЕНЕРАЦІЮ великого обсягу даних...")
+    db_path = "data/app.db"
 
-    # Ініціалізація стореджа (шлях може відрізнятись залежно від того, звідки запускаєте)
-    storage = StorageService("data/app.db")
+    # Використовуємо storage тільки для початкових перевірок і створення юзера/категорій,
+    # де немає конфлікту транзакцій.
+    storage = StorageService(db_path)
 
     # 1. КОРИСТУВАЧ
     username = "tester"
@@ -56,7 +58,7 @@ def seed_data():
 
     user_id = user.id
 
-    # 2. КАТЕГОРІЇ (8 штук)
+    # 2. КАТЕГОРІЇ
     print("🗂️ Створення категорій...")
     categories_data = [
         ("Робота", "#3b82f6"),  # Blue
@@ -75,76 +77,77 @@ def seed_data():
         storage.save_category(cat)
         created_cats.append(cat)
 
-    # 3. ЗВИЧКИ (15 штук)
-    print(f"⚡ Генерація {len(HABITS_LIST)} звичок...")
+    # 3. ЗВИЧКИ ТА ІСТОРІЯ (Один курсор для всього блоку)
+    print(f"⚡ Генерація {len(HABITS_LIST)} звичок та історії виконань...")
+
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+
     for title in HABITS_LIST:
-        # Випадковий стрік від 0 до 60
+        # Стрік
         streak = random.randint(0, 60)
 
-        # Визначаємо дату останнього виконання
-        # 40% що сьогодні, 30% вчора, 30% давно (стрік міг бути перерваний, але для спрощення запишемо дату)
+        # Визначаємо останню дату
         r = random.random()
-        if r < 0.4:
-            days_ago = 0
-        elif r < 0.7:
-            days_ago = 1
+        if r < 0.5:
+            days_ago = 0  # Сьогодні
+        elif r < 0.8:
+            days_ago = 1  # Вчора
         else:
-            days_ago = random.randint(2, 10)
+            days_ago = random.randint(2, 10)  # Давно
 
-        last_date = (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        last_date_obj = datetime.now() - timedelta(days=days_ago)
+        last_date_str = last_date_obj.strftime("%Y-%m-%d")
 
+        # Створюємо об'єкт звички (щоб згенерувати ID)
         habit = Habit(
             title=title,
             user_id=user_id,
             streak=streak,
-            last_completed_date=last_date
+            last_completed_date=last_date_str
         )
-        storage.save_habit(habit)
 
-    # 4. ЦІЛІ (100 штук)
-    print("🎯 Генерація 100 цілей з підцілями...")
+        # ВИПРАВЛЕНО: Записуємо звичку через той самий курсор 'c',
+        # замість виклику storage.save_habit(habit)
+        c.execute('''INSERT OR REPLACE INTO habits VALUES (?, ?, ?, ?, ?)''',
+                  (habit.id, habit.user_id, habit.title, habit.streak, habit.last_completed_date))
 
+        # ГЕНЕРАЦІЯ ІСТОРІЇ (ГАЛОЧОК)
+        if streak > 0:
+            for i in range(streak):
+                log_date = last_date_obj - timedelta(days=i)
+                log_date_str = log_date.strftime("%Y-%m-%d")
+
+                c.execute("INSERT OR IGNORE INTO habit_logs (habit_id, date) VALUES (?, ?)",
+                          (habit.id, log_date_str))
+
+    conn.commit()  # Фіксуємо зміни звичок і логів
+    conn.close()  # Закриваємо з'єднання перед наступним блоком
+
+    # 4. ЦІЛІ (Тут можна безпечно використовувати storage, бо попереднє з'єднання закрите)
+    print("🎯 Генерація 100 цілей...")
     priorities = list(GoalPriority)
 
     for i in range(100):
-        # Генерація назви
         title = f"{random.choice(VERBS)} {random.choice(NOUNS)}"
         if random.random() > 0.5:
             title += f" ({random.choice(CONTEXTS)})"
 
-        # Опис (Lorem Ipsum style)
-        desc = f"Це автоматично згенерована ціль №{i + 1}. Тут має бути детальний опис завдання, " \
-               f"яке необхідно виконати для досягнення успіху в категорії."
-
-        # Категорія
+        desc = f"Це автоматично згенерована ціль №{i + 1}..."
         cat = random.choice(created_cats)
-
-        # Пріоритет (зважений рандом: середніх більше)
         priority = random.choices(priorities, weights=[20, 40, 30, 10], k=1)[0]
 
-        # Дедлайн: розкид від -60 днів до +90 днів (для гарного графіка)
         days_offset = random.randint(-60, 90)
         deadline_date = datetime.now() + timedelta(days=days_offset)
         deadline_str = deadline_date.strftime("%Y-%m-%d")
 
-        # Статус (Логіка залежить від дедлайну)
         if days_offset < -5:
-            # Якщо дедлайн давно пройшов
-            status = random.choices(
-                [GoalStatus.MISSED, GoalStatus.COMPLETED, GoalStatus.IN_PROGRESS],
-                weights=[60, 30, 10], k=1
-            )[0]
+            status = random.choices([GoalStatus.MISSED, GoalStatus.COMPLETED], weights=[70, 30], k=1)[0]
         elif days_offset < 0:
-            # Якщо пройшов недавно
-            status = random.choice([GoalStatus.MISSED, GoalStatus.COMPLETED])
+            status = random.choices([GoalStatus.MISSED, GoalStatus.COMPLETED], weights=[40, 60], k=1)[0]
         else:
-            # Якщо дедлайн у майбутньому
-            status = random.choices(
-                [GoalStatus.PLANNED, GoalStatus.IN_PROGRESS, GoalStatus.COMPLETED],
-                weights=[50, 40, 10], k=1
-            )[0]
+            status = random.choices([GoalStatus.PLANNED, GoalStatus.IN_PROGRESS], weights=[60, 40], k=1)[0]
 
-        # Створення цілі
         goal = LearningGoal(
             title=title,
             description=desc,
@@ -154,44 +157,24 @@ def seed_data():
             user_id=user_id,
             category_id=cat.id
         )
+        created_offset = random.randint(0, 30)
+        goal.created_at = datetime.now() - timedelta(days=created_offset)
+
         storage.save_goal(goal)
 
-        # 5. ПІДЦІЛІ (2-6 штук для кожної цілі)
         num_subs = random.randint(2, 6)
-        completed_count = 0
-
-        # Якщо ціль виконана - всі підцілі виконані
-        if status == GoalStatus.COMPLETED:
-            force_all_done = True
-        # Якщо запланована - нічого не виконано (зазвичай)
-        elif status == GoalStatus.PLANNED:
-            force_all_done = False
-            force_none_done = True
-        else:
-            force_all_done = False
-            force_none_done = False
+        force_done = (status == GoalStatus.COMPLETED)
 
         for j in range(num_subs):
-            sub_title = f"Етап {j + 1}: {random.choice(VERBS)} частину {j + 1}"
-
-            is_done = False
-            if force_all_done:
-                is_done = True
-            elif not force_none_done:
-                # В процесі або прострочено - рандом
-                is_done = random.choice([True, False])
-
             sub = SubGoal(
-                title=sub_title,
+                title=f"Етап {j + 1}: {random.choice(VERBS)} частину",
                 goal_id=goal.id,
-                is_completed=is_done
+                is_completed=True if force_done else random.choice([True, False])
             )
             storage.save_subgoal(sub)
 
-    print("✅ Успішно! База даних заповнена.")
-    print(f"   Користувач: {username}")
-    print(f"   Пароль: 123123")
-    print("🚀 Тепер запустіть main.py")
+    print("✅ Успішно! База даних заповнена з історією звичок.")
+    print(f"   Користувач: {username} / 123123")
 
 
 if __name__ == "__main__":
