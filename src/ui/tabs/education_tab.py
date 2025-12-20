@@ -1,33 +1,60 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QProgressBar, QFrame, QSizePolicy, QMessageBox, QComboBox)
-from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDesktopServices, QCursor, QColor
+from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QCursor
 from .base_tab import BaseTab
 from ..edit_course_dialog import EditCourseDialog
-from ...models import CourseStatus, CourseType, DevelopmentTopic
+from ..topic_manager_dialog import TopicManagerDialog
+from ..search_dialog import SearchDialog
+from ...models import CourseStatus, CourseType
 
 
 class CourseCard(QFrame):
-    def __init__(self, course, parent_tab):
+    # Сигнал, який повідомляє, що картка змінилася і список треба оновити
+    course_changed = pyqtSignal()
+
+    def __init__(self, course, parent_tab, topic_name=""):
         super().__init__()
         self.course = course
         self.parent_tab = parent_tab
+        self.topic_name = topic_name
         self.setup_ui()
 
     def setup_ui(self):
-        self.setStyleSheet("""
-            QFrame {
+        self.setObjectName("CardFrame")
+
+        self.style_normal = """
+            QFrame#CardFrame {
                 background-color: #1e293b;
-                border: 1px solid #334155;
+                border: 2px solid #334155;
                 border-radius: 10px;
             }
-            QLabel { border: none; color: #e0e0e0; background: transparent; }
-        """)
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+            QLabel { border: none; background-color: transparent; color: #e0e0e0; }
+        """
 
-        # Header
-        header = QHBoxLayout()
+        self.style_highlight = """
+            QFrame#CardFrame {
+                background-color: #1e3a8a;
+                border: 2px solid #ea80fc; 
+                border-radius: 10px;
+            }
+            QLabel { border: none; background-color: transparent; color: #ffffff; }
+        """
+
+        self.setStyleSheet(self.style_normal)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
+
+        # 1. HEADER
+        header_layout = QHBoxLayout()
+
+        title_widget = QWidget()
+        title_inner = QVBoxLayout(title_widget)
+        title_inner.setContentsMargins(0, 0, 0, 0)
+        title_inner.setSpacing(2)
 
         icon_map = {
             CourseType.BOOK: "📖",
@@ -39,65 +66,92 @@ class CourseCard(QFrame):
         }
         icon = icon_map.get(self.course.course_type, "🎓")
 
+        # Title
         title_lbl = QLabel(f"{icon} {self.course.title}")
-        title_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: white;")
+        title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: white;")
         title_lbl.setWordWrap(True)
-        header.addWidget(title_lbl, 1)
+        title_inner.addWidget(title_lbl)
 
-        # Link Button
+        # Topic Label
+        if self.topic_name:
+            topic_lbl = QLabel(f"[{self.topic_name}]")
+            topic_lbl.setStyleSheet("color: #60a5fa; font-size: 12px; font-weight: bold;")
+            title_inner.addWidget(topic_lbl)
+
+        header_layout.addWidget(title_widget, 1)
+
+        # --- BUTTONS ---
+
         if self.course.link:
             btn_link = QPushButton("🔗")
             btn_link.setFixedSize(30, 30)
             btn_link.setCursor(QCursor(Qt.PointingHandCursor))
-            btn_link.setStyleSheet(
-                "background-color: #0f172a; border-radius: 15px; color: #3b82f6; border: 1px solid #1e40af;")
+            btn_link.setStyleSheet("""
+                QPushButton { background-color: #0f172a; border-radius: 15px; color: #3b82f6; border: 1px solid #1e40af; }
+                QPushButton:hover { background-color: #1e3a8a; }
+            """)
             btn_link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.course.link)))
-            header.addWidget(btn_link)
+            header_layout.addWidget(btn_link)
 
-        # Edit Button
         btn_edit = QPushButton("⚙️")
         btn_edit.setFixedSize(30, 30)
-        btn_edit.setStyleSheet("background-color: transparent; color: #94a3b8; border: none; font-size: 18px;")
+        btn_edit.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_edit.setStyleSheet("""
+            QPushButton { background-color: transparent; color: #94a3b8; border: none; font-size: 18px; }
+            QPushButton:hover { color: white; }
+        """)
         btn_edit.clicked.connect(self.edit_course)
-        header.addWidget(btn_edit)
+        header_layout.addWidget(btn_edit)
 
-        # Delete Button
         btn_del = QPushButton("✖")
-        btn_del.setFixedSize(30, 30)
-        btn_del.setStyleSheet("background-color: transparent; color: #ef4444; border: none; font-weight: bold;")
+        btn_del.setFixedSize(28, 28)
+        btn_del.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_del.setStyleSheet("""
+            QPushButton { background-color: transparent; color: #ef5350; border: none; font-size: 18px; font-weight: bold; }
+            QPushButton:hover { color: #ff8a80; }
+        """)
         btn_del.clicked.connect(self.delete_course)
-        header.addWidget(btn_del)
+        header_layout.addWidget(btn_del)
 
-        main_layout.addLayout(header)
+        main_layout.addLayout(header_layout)
 
-        # Progress
+        # 2. PROGRESS BAR
         prog_layout = QHBoxLayout()
 
-        btn_minus = QPushButton("-")
-        btn_minus.setFixedSize(30, 30)
-        btn_minus.setStyleSheet("background-color: #334155; border-radius: 4px; font-weight: bold;")
-        btn_minus.clicked.connect(lambda: self.change_progress(-1))
+        chunk_color = "#10b981"
+        if "Спорт" in self.topic_name:
+            chunk_color = "#f59e0b"
+        elif "Твор" in self.topic_name:
+            chunk_color = "#ec4899"
+        elif "Кар" in self.topic_name:
+            chunk_color = "#6366f1"
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, self.course.total_units)
         self.progress_bar.setValue(self.course.completed_units)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat(f"%v / %m {self.get_unit_name()}")
-        self.progress_bar.setFixedHeight(20)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #334155;
-                border-radius: 5px;
+        self.progress_bar.setFixedHeight(16)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid #1e4976;
+                border-radius: 4px;
                 background-color: #0f172a;
-                color: white;
                 text-align: center;
-            }
-            QProgressBar::chunk { background-color: #10b981; border-radius: 4px; }
+                color: white;
+                font-size: 11px;
+            }}
+            QProgressBar::chunk {{ background-color: {chunk_color}; border-radius: 3px; }}
         """)
 
+        btn_minus = QPushButton("-")
+        btn_minus.setFixedSize(24, 24)
+        btn_minus.setStyleSheet("background-color: #334155; border-radius: 4px; font-weight: bold; color: white;")
+        btn_minus.clicked.connect(lambda: self.change_progress(-1))
+
         btn_plus = QPushButton("+")
-        btn_plus.setFixedSize(30, 30)
-        btn_plus.setStyleSheet("background-color: #10b981; border-radius: 4px; font-weight: bold; color: white;")
+        btn_plus.setFixedSize(24, 24)
+        btn_plus.setStyleSheet(f"background-color: {chunk_color}; border-radius: 4px; font-weight: bold; color: white;")
         btn_plus.clicked.connect(lambda: self.change_progress(1))
 
         prog_layout.addWidget(btn_minus)
@@ -109,11 +163,14 @@ class CourseCard(QFrame):
     def get_unit_name(self):
         if self.course.course_type == CourseType.BOOK: return "стор."
         if self.course.course_type == CourseType.CHALLENGE: return "раз"
-        if self.course.course_type == CourseType.PROJECT: return "%"
-        return "ур."
+        if self.course.course_type == CourseType.PROJECT: return "%%"
+        if "Спорт" in self.topic_name: return "км/раз"
+        return "од."
 
     def change_progress(self, delta):
+        old_status = self.course.status
         new_val = self.course.completed_units + delta
+
         if 0 <= new_val <= self.course.total_units:
             self.course.completed_units = new_val
 
@@ -121,175 +178,231 @@ class CourseCard(QFrame):
                 self.course.status = CourseStatus.COMPLETED
             elif new_val > 0 and self.course.status == CourseStatus.PLANNED:
                 self.course.status = CourseStatus.IN_PROGRESS
+            elif new_val == 0 and self.course.status == CourseStatus.IN_PROGRESS:
+                self.course.status = CourseStatus.PLANNED
 
             self.parent_tab.mw.storage.save_course(self.course)
-            self.parent_tab.refresh_list()
+
+            # Оновлюємо UI локально
+            self.progress_bar.setValue(new_val)
+
+            # Перевіряємо, чи треба перебудовувати список
+            status_changed = (old_status != self.course.status)
+            sort_mode = self.parent_tab.sort_combo.currentText()
+            is_sorting_by_progress = "Прогрес" in sort_mode
+
+            if status_changed or is_sorting_by_progress:
+                # ВАЖЛИВО: Емітимо сигнал, а не викликаємо функцію напряму
+                self.course_changed.emit()
 
     def edit_course(self):
-        # Передаємо аргументи іменовано, щоб уникнути помилок
         dialog = EditCourseDialog(self.parent_tab.mw, user_id=self.course.user_id,
                                   storage=self.parent_tab.mw.storage, course=self.course)
         if dialog.exec_():
-            self.parent_tab.refresh_list()
+            self.course_changed.emit()
 
     def delete_course(self):
         reply = QMessageBox.question(self, "Видалення", f"Видалити '{self.course.title}'?",
                                      QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.parent_tab.mw.storage.delete_course(self.course.id)
-            self.parent_tab.refresh_list()
+            self.course_changed.emit()
+
+    def highlight_card(self):
+        self.setStyleSheet(self.style_highlight)
+        QTimer.singleShot(1500, self.reset_style)
+
+    def reset_style(self):
+        try:
+            self.setStyleSheet(self.style_normal)
+        except RuntimeError:
+            pass
 
 
 class DevelopmentTab(BaseTab):
     def __init__(self, parent, main_window):
         super().__init__(parent, main_window)
-        self.selected_topic = DevelopmentTopic.EDUCATION  # Default
+        self.pinned_course_id = None
+        self.should_highlight = False
+
         self.setup_header()
-        self.refresh_list()
+        self.setup_footer()
+
+        self.load_topics()
+        self.update_list()
 
     def setup_header(self):
-        # Container for the whole header
-        header_widget = QWidget()
-        main_layout = QVBoxLayout(header_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(15)
+        header = QHBoxLayout()
+        header.setContentsMargins(10, 10, 10, 0)
 
-        # 1. Title
+        title_layout = QVBoxLayout()
         title = QLabel("🚀 Центр Розвитку")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
-        main_layout.addWidget(title)
+        title_layout.addWidget(title)
 
-        # 2. Topic Buttons (Big & Nice)
-        self.topic_layout = QHBoxLayout()
-        self.topic_layout.setSpacing(10)
+        filters_row = QHBoxLayout()
 
-        self.topic_buttons = {}
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems([
+            "Сорт: Статус",
+            "Сорт: Назва",
+            "Сорт: Прогрес",
+            "Сорт: Дата"
+        ])
+        self.sort_combo.setFixedWidth(150)
+        self.sort_combo.setStyleSheet(
+            "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
+        self.sort_combo.currentIndexChanged.connect(self.update_list)
 
-        topics = [
-            (DevelopmentTopic.EDUCATION, "🎓 Навчання"),
-            (DevelopmentTopic.SPORT, "💪 Спорт"),
-            (DevelopmentTopic.CREATIVITY, "🎨 Творчість"),
-            (DevelopmentTopic.CAREER, "💼 Кар'єра")
-        ]
+        self.topic_filter = QComboBox()
+        self.topic_filter.addItem("Всі теми", None)
+        self.topic_filter.setFixedWidth(150)
+        self.topic_filter.setStyleSheet(
+            "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
+        self.topic_filter.currentIndexChanged.connect(self.update_list)
 
-        for topic_enum, text in topics:
-            btn = QPushButton(text)
-            btn.setCheckable(True)
-            btn.setFixedHeight(40)
-            # При кліку викликаємо зміну топіка
-            btn.clicked.connect(lambda checked, t=topic_enum: self.change_topic(t))
-            self.topic_buttons[topic_enum] = btn
-            self.topic_layout.addWidget(btn)
+        filters_row.addWidget(self.sort_combo)
+        filters_row.addWidget(self.topic_filter)
 
-        # Кнопка "Інше" (Other)
-        btn_other = QPushButton("📂 Інше")
-        btn_other.setCheckable(True)
-        btn_other.setFixedHeight(40)
-        btn_other.clicked.connect(lambda: self.change_topic(DevelopmentTopic.OTHER))
-        self.topic_buttons[DevelopmentTopic.OTHER] = btn_other
-        self.topic_layout.addWidget(btn_other)
+        title_layout.addLayout(filters_row)
+        header.addLayout(title_layout)
+        header.addStretch()
 
-        self.update_btn_styles()
-        main_layout.addLayout(self.topic_layout)
+        self.layout.insertLayout(0, header)
 
-        # 3. Add Button (Right aligned in a row with filters if needed, or just below)
-        row_controls = QHBoxLayout()
+    def setup_footer(self):
+        footer = QHBoxLayout()
+        footer.setContentsMargins(10, 10, 10, 10)
 
-        self.filter_status = QComboBox()
-        self.filter_status.addItems(["Всі статуси", "В процесі", "Заплановано", "Завершено"])
-        self.filter_status.setStyleSheet(
-            "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; padding: 5px;")
-        self.filter_status.currentIndexChanged.connect(self.refresh_list)
+        btn_style = "QPushButton { background-color: #1e3a8a; color: white; border: 2px solid #3b82f6; border-radius: 8px; padding: 10px 15px; font-weight: bold; } QPushButton:hover { background-color: #2563eb; }"
+        btn_action_style = "QPushButton { background-color: #7c3aed; color: white; border: 2px solid #8b5cf6; border-radius: 8px; padding: 10px 15px; font-weight: bold; } QPushButton:hover { background-color: #8b5cf6; }"
 
-        btn_add = QPushButton("➕ Додати")
-        btn_add.setStyleSheet("""
-            QPushButton { background-color: #2563eb; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; }
-            QPushButton:hover { background-color: #1d4ed8; }
-        """)
+        btn_add = QPushButton("➕ Новий Матеріал")
+        btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self.add_course)
 
-        row_controls.addWidget(self.filter_status)
-        row_controls.addStretch()
-        row_controls.addWidget(btn_add)
+        btn_manage = QPushButton("🗂 Теми")
+        btn_manage.setStyleSheet(btn_action_style)
+        btn_manage.clicked.connect(self.open_topic_manager)
 
-        main_layout.addLayout(row_controls)
+        btn_refresh = QPushButton("🔄 Оновити")
+        btn_refresh.setStyleSheet(btn_style)
+        btn_refresh.clicked.connect(self.update_list)
 
-        self.layout.insertWidget(0, header_widget)
+        btn_search = QPushButton("🔍 Пошук")
+        btn_search.setStyleSheet(btn_style)
+        btn_search.clicked.connect(self.open_search)
 
-    def change_topic(self, topic):
-        self.selected_topic = topic
-        self.update_btn_styles()
-        self.refresh_list()
+        footer.addWidget(btn_add)
+        footer.addWidget(btn_manage)
+        footer.addWidget(btn_refresh)
+        footer.addWidget(btn_search)
+        footer.addStretch()
 
-    def update_btn_styles(self):
-        for topic, btn in self.topic_buttons.items():
-            if topic == self.selected_topic:
-                # Active Style
-                btn.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #2563eb; color: white; border: 2px solid #60a5fa; 
-                        border-radius: 8px; font-weight: bold; font-size: 14px;
-                    }
-                """)
-                btn.setChecked(True)
-            else:
-                # Inactive Style
-                btn.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; 
-                        border-radius: 8px; font-weight: 500; font-size: 14px;
-                    }
-                    QPushButton:hover { background-color: #334155; color: white; }
-                """)
-                btn.setChecked(False)
+        self.layout.addLayout(footer)
 
-    def refresh_list(self):
+    def load_topics(self):
+        current = self.topic_filter.currentData()
+        self.topic_filter.blockSignals(True)
+        self.topic_filter.clear()
+        self.topic_filter.addItem("Всі теми", None)
+
+        topics = self.mw.storage.get_topics(self.mw.user_id)
+        for t in topics:
+            self.topic_filter.addItem(t.name, t.id)
+
+        if current:
+            idx = self.topic_filter.findData(current)
+            if idx >= 0: self.topic_filter.setCurrentIndex(idx)
+        self.topic_filter.blockSignals(False)
+
+    def update_list(self):
         self.clear_list()
+
         all_courses = self.mw.storage.get_courses(self.mw.user_id)
 
-        # 1. Filter by Topic
-        topic_courses = [c for c in all_courses if c.topic == self.selected_topic]
+        # Filter
+        topic_id = self.topic_filter.currentData()
+        if topic_id:
+            all_courses = [c for c in all_courses if c.topic_id == topic_id]
 
-        # 2. Filter by Status
-        status_txt = self.filter_status.currentText()
-        filtered = []
-        for c in topic_courses:
-            if status_txt == "Всі статуси":
-                filtered.append(c)
-            elif status_txt == "В процесі" and c.status == CourseStatus.IN_PROGRESS:
-                filtered.append(c)
-            elif status_txt == "Заплановано" and c.status == CourseStatus.PLANNED:
-                filtered.append(c)
-            elif status_txt == "Завершено" and c.status == CourseStatus.COMPLETED:
-                filtered.append(c)
+        # Sort
+        sort_mode = self.sort_combo.currentText()
+        if "Назва" in sort_mode:
+            all_courses.sort(key=lambda x: x.title.lower())
+        elif "Прогрес" in sort_mode:
+            all_courses.sort(key=lambda x: (x.completed_units / x.total_units if x.total_units > 0 else 0),
+                             reverse=True)
+        elif "Дата" in sort_mode:
+            all_courses.sort(key=lambda x: x.created_at, reverse=True)
+        else:  # "Статус"
+            all_courses.sort(key=lambda x: x.status != CourseStatus.IN_PROGRESS)
 
-        if not filtered:
-            lbl = QLabel(f"У категорії '{self.selected_topic.value}' поки пусто")
-            lbl.setStyleSheet("color: #64748b; font-size: 16px; margin-top: 40px;")
+        if not all_courses:
+            lbl = QLabel("Список порожній")
+            lbl.setStyleSheet("color: gray; font-size: 16px; margin-top: 20px;")
             lbl.setAlignment(Qt.AlignCenter)
             self.list_layout.addWidget(lbl)
             return
 
-        # Sort: In Progress first
-        filtered.sort(key=lambda x: x.status != CourseStatus.IN_PROGRESS)
+        topics = self.mw.storage.get_topics(self.mw.user_id)
+        topic_map = {t.id: t.name for t in topics}
 
-        for course in filtered:
-            card = CourseCard(course, self)
+        target_card = None
+
+        if self.pinned_course_id:
+            pinned = next((c for c in all_courses if c.id == self.pinned_course_id), None)
+            if pinned:
+                all_courses.remove(pinned)
+                all_courses.insert(0, pinned)
+
+        for course in all_courses:
+            t_name = topic_map.get(course.topic_id, "")
+            card = CourseCard(course, self, topic_name=t_name)
+
+            # ВАЖЛИВО: Підключаємо сигнал через чергу (QueuedConnection)
+            # Це ключ до виправлення крашу 0xC0000409
+            card.course_changed.connect(self.update_list, Qt.QueuedConnection)
+
             self.list_layout.addWidget(card)
 
+            if self.pinned_course_id and course.id == self.pinned_course_id:
+                target_card = card
+
+        if target_card and self.should_highlight:
+            QTimer.singleShot(100, target_card.highlight_card)
+            self.should_highlight = False
+
     def add_course(self):
-        # Створюємо нову ціль із вже вибраним топіком
-        new_c = type('obj', (object,),
-                     {'topic': self.selected_topic, 'title': '', 'link': '', 'course_type': CourseType.COURSE,
-                      'status': CourseStatus.IN_PROGRESS, 'completed_units': 0, 'total_units': 10})
-        # Але EditDialog приймає course=None для створення.
-        # Щоб передати дефолтний топік, можна трохи схитрувати або просто вибрати його в діалозі.
-        # Для простоти передамо None, користувач сам вибере.
+        current_topic_id = self.topic_filter.currentData()
 
         dialog = EditCourseDialog(self.mw, user_id=self.mw.user_id, storage=self.mw.storage)
-        # Хак: встановлюємо поточний топік в діалозі
-        idx = dialog.topic_combo.findData(self.selected_topic)
-        if idx >= 0: dialog.topic_combo.setCurrentIndex(idx)
+
+        if current_topic_id:
+            idx = dialog.topic_combo.findData(current_topic_id)
+            if idx >= 0: dialog.topic_combo.setCurrentIndex(idx)
 
         if dialog.exec_():
-            self.refresh_list()
+            self.pinned_course_id = None
+            self.update_list()
+
+    def open_topic_manager(self):
+        dialog = TopicManagerDialog(self.mw, self.mw.user_id, self.mw.storage)
+        dialog.exec_()
+        self.load_topics()
+        self.update_list()
+
+    def open_search(self):
+        courses = self.mw.storage.get_courses(self.mw.user_id)
+        if not courses:
+            QMessageBox.information(self.mw, "Пошук", "Список матеріалів порожній.")
+            return
+
+        dialog = SearchDialog(self.mw, courses, self.mw.storage)
+        if dialog.exec_() and dialog.selected_goal_id:
+            self.pinned_course_id = dialog.selected_goal_id
+            self.should_highlight = True
+            self.update_list()
+
+            if hasattr(self, 'scroll_area'):
+                QTimer.singleShot(100, lambda: self.scroll_area.verticalScrollBar().setValue(0))

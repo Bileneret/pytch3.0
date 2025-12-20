@@ -2,7 +2,7 @@ import sqlite3
 import os
 from datetime import datetime, date, timedelta
 from .models import User, LearningGoal, GoalStatus, GoalPriority, Habit, SubGoal, Category, Course, CourseType, \
-    CourseStatus
+    CourseStatus, Topic
 
 
 class StorageService:
@@ -16,57 +16,145 @@ class StorageService:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
-        # ... (Users, Categories - без змін)
+        # Users
         c.execute('''CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY, username TEXT, password_hash TEXT,
             total_completed_goals INTEGER, avatar_path TEXT, created_at TEXT
         )''')
 
+        # Categories
         c.execute('''CREATE TABLE IF NOT EXISTS categories (
             id TEXT PRIMARY KEY, user_id TEXT, name TEXT, color TEXT
         )''')
 
-        # 3. GOALS (ОНОВЛЕНО: додано link)
+        # Goals
         c.execute('''CREATE TABLE IF NOT EXISTS goals (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, description TEXT,
             deadline TEXT, priority TEXT, status TEXT, created_at TEXT, category_id TEXT, link TEXT
         )''')
 
-        # Міграції
-        try:
-            c.execute("ALTER TABLE goals ADD COLUMN category_id TEXT")
-        except sqlite3.OperationalError:
-            pass
-
-        try:
-            c.execute("ALTER TABLE goals ADD COLUMN link TEXT")
-        except sqlite3.OperationalError:
-            pass
-
-            # ... (Subgoals, Habits, HabitLogs, Courses - без змін)
+        # Subgoals
         c.execute('''CREATE TABLE IF NOT EXISTS subgoals (
             id TEXT PRIMARY KEY, goal_id TEXT, title TEXT, is_completed INTEGER, description TEXT, created_at TEXT
         )''')
 
+        # Habits
         c.execute('''CREATE TABLE IF NOT EXISTS habits (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, streak INTEGER, last_completed_date TEXT
         )''')
 
+        # Habit Logs
         c.execute('''CREATE TABLE IF NOT EXISTS habit_logs (
             habit_id TEXT, date TEXT,
             PRIMARY KEY (habit_id, date)
         )''')
 
+        # TOPICS
+        c.execute('''CREATE TABLE IF NOT EXISTS topics (
+            id TEXT PRIMARY KEY, user_id TEXT, name TEXT
+        )''')
+
+        # COURSES
         c.execute('''CREATE TABLE IF NOT EXISTS courses (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, type TEXT, 
             status TEXT, total_units INTEGER, completed_units INTEGER, 
-            link TEXT, description TEXT, created_at TEXT
+            link TEXT, description TEXT, created_at TEXT, topic_id TEXT
         )''')
+
+        # MIGRATION: add topic_id if missing
+        try:
+            c.execute("ALTER TABLE courses ADD COLUMN topic_id TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         conn.commit()
         conn.close()
 
-    # ... (User, Category methods - без змін) ...
+    # --- TOPICS ---
+    def get_topics(self, user_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT * FROM topics WHERE user_id = ?", (user_id,))
+        rows = c.fetchall()
+        conn.close()
+
+        topics = []
+        for r in rows:
+            topics.append(Topic(id=r[0], user_id=r[1], name=r[2]))
+
+        # Якщо тем немає, створюємо дефолтні
+        if not topics:
+            default_names = ["Навчання", "Спорт", "Творчість", "Кар'єра"]
+            for name in default_names:
+                t = Topic(name=name, user_id=user_id)
+                self.save_topic(t)
+                topics.append(t)
+
+        return topics
+
+    def save_topic(self, topic: Topic):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO topics VALUES (?, ?, ?)",
+                  (topic.id, topic.user_id, topic.name))
+        conn.commit()
+        conn.close()
+
+    def delete_topic(self, topic_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+        c.execute("UPDATE courses SET topic_id = '' WHERE topic_id = ?", (topic_id,))
+        conn.commit()
+        conn.close()
+
+    # --- COURSES ---
+    def save_course(self, course: Course):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''INSERT OR REPLACE INTO courses VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (course.id, course.user_id, course.title,
+                   course.course_type.name, course.status.name,
+                   course.total_units, course.completed_units,
+                   course.link, course.description, str(course.created_at),
+                   course.topic_id))
+        conn.commit()
+        conn.close()
+
+    def get_courses(self, user_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT * FROM courses WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+        rows = c.fetchall()
+        conn.close()
+
+        courses = []
+        for r in rows:
+            c_type = CourseType[r[3]] if r[3] in CourseType.__members__ else CourseType.COURSE
+            c_status = CourseStatus[r[4]] if r[4] in CourseStatus.__members__ else CourseStatus.PLANNED
+            t_id = r[10] if len(r) > 10 else ""
+
+            course = Course(
+                id=r[0], user_id=r[1], title=r[2],
+                course_type=c_type, status=c_status,
+                total_units=r[5], completed_units=r[6],
+                link=r[7], description=r[8], topic_id=t_id
+            )
+            try:
+                course.created_at = datetime.fromisoformat(r[9])
+            except:
+                pass
+            courses.append(course)
+        return courses
+
+    def delete_course(self, course_id: str):
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("DELETE FROM courses WHERE id = ?", (course_id,))
+        conn.commit()
+        conn.close()
+
+    # --- STANDARD METHODS (USER, GOALS, HABITS) ---
     def get_user_by_username(self, username: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -137,17 +225,12 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # ==========================
-    # GOAL METHODS (ОНОВЛЕНО)
-    # ==========================
     def save_goal(self, goal: LearningGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("SELECT 1 FROM goals WHERE id = ?", (goal.id,))
         exists = c.fetchone()
-
         deadline_str = str(goal.deadline) if goal.deadline else None
-
         if exists:
             c.execute(
                 '''UPDATE goals SET title=?, description=?, deadline=?, priority=?, status=?, category_id=?, link=? WHERE id=?''',
@@ -166,7 +249,6 @@ class StorageService:
         c = conn.cursor()
         c.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         rows = c.fetchall()
-        conn.close()
         goals = []
         for r in rows:
             g = LearningGoal(title=r[2], description=r[3])
@@ -175,10 +257,8 @@ class StorageService:
             g.deadline = r[4]
             if r[5] in GoalPriority.__members__: g.priority = GoalPriority[r[5]]
             if r[6] in GoalStatus.__members__: g.status = GoalStatus[r[6]]
-            # r[7] created_at
             if len(r) > 8: g.category_id = r[8]
             if len(r) > 9: g.link = r[9] if r[9] else ""
-
             if r[7]:
                 try:
                     g.created_at = datetime.fromisoformat(r[7])
@@ -195,9 +275,6 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # ==========================
-    # HABIT METHODS
-    # ==========================
     def save_habit(self, habit: Habit):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -211,7 +288,6 @@ class StorageService:
         c = conn.cursor()
         c.execute("SELECT * FROM habits WHERE user_id = ?", (user_id,))
         rows = c.fetchall()
-        conn.close()
         habits = []
         for r in rows:
             h = Habit(title=r[2], user_id=r[1])
@@ -232,17 +308,14 @@ class StorageService:
     def toggle_habit_date(self, habit_id: str, date_str: str) -> bool:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-
         c.execute("SELECT 1 FROM habit_logs WHERE habit_id = ? AND date = ?", (habit_id, date_str))
         exists = c.fetchone()
-
         is_completed = False
         if exists:
             c.execute("DELETE FROM habit_logs WHERE habit_id = ? AND date = ?", (habit_id, date_str))
         else:
             c.execute("INSERT INTO habit_logs VALUES (?, ?)", (habit_id, date_str))
             is_completed = True
-
         conn.commit()
         self._recalc_streak(c, habit_id)
         conn.close()
@@ -254,25 +327,19 @@ class StorageService:
         c.execute("SELECT date FROM habit_logs WHERE habit_id = ? AND date BETWEEN ? AND ?",
                   (habit_id, start_date, end_date))
         rows = c.fetchall()
-        conn.close()
         return {r[0] for r in rows}
 
     def _recalc_streak(self, cursor, habit_id):
         cursor.execute("SELECT date FROM habit_logs WHERE habit_id = ? ORDER BY date DESC", (habit_id,))
         rows = cursor.fetchall()
-
         dates = [datetime.strptime(r[0], "%Y-%m-%d").date() for r in rows]
-
         if not dates:
             streak = 0
             last_date = ""
         else:
-            today = date.today()
             streak = 0
-            if dates[0] < today - timedelta(days=1):
-                streak = 0
-            else:
-                current_check = dates[0]
+            current_check = dates[0]
+            if dates[0] >= date.today() - timedelta(days=1):
                 streak = 1
                 for i in range(1, len(dates)):
                     if dates[i] == current_check - timedelta(days=1):
@@ -281,14 +348,10 @@ class StorageService:
                     else:
                         break
             last_date = dates[0].isoformat()
-
         cursor.execute("UPDATE habits SET streak = ?, last_completed_date = ? WHERE id = ?",
                        (streak, last_date, habit_id))
         cursor.connection.commit()
 
-    # ==========================
-    # SUBGOAL METHODS
-    # ==========================
     def save_subgoal(self, subgoal: SubGoal):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -305,8 +368,6 @@ class StorageService:
         c = conn.cursor()
         c.execute("SELECT * FROM subgoals WHERE goal_id = ?", (goal_id,))
         rows = c.fetchall()
-        conn.close()
-
         subgoals = []
         for r in rows:
             s = SubGoal(title=r[2], goal_id=r[1])
@@ -319,59 +380,13 @@ class StorageService:
                 except:
                     pass
             subgoals.append(s)
-
         subgoals.sort(key=lambda x: (x.is_completed, x.created_at))
+        conn.close()
         return subgoals
 
     def delete_subgoal(self, subgoal_id: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("DELETE FROM subgoals WHERE id = ?", (subgoal_id,))
-        conn.commit()
-        conn.close()
-
-    # ==========================
-    # COURSE METHODS (НОВІ)
-    # ==========================
-    def save_course(self, course: Course):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('''INSERT OR REPLACE INTO courses VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (course.id, course.user_id, course.title,
-                   course.course_type.name, course.status.name,
-                   course.total_units, course.completed_units,
-                   course.link, course.description, str(course.created_at)))
-        conn.commit()
-        conn.close()
-
-    def get_courses(self, user_id: str):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("SELECT * FROM courses WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
-        rows = c.fetchall()
-        conn.close()
-
-        courses = []
-        for r in rows:
-            c_type = CourseType[r[3]] if r[3] in CourseType.__members__ else CourseType.COURSE
-            c_status = CourseStatus[r[4]] if r[4] in CourseStatus.__members__ else CourseStatus.PLANNED
-
-            course = Course(
-                id=r[0], user_id=r[1], title=r[2],
-                course_type=c_type, status=c_status,
-                total_units=r[5], completed_units=r[6],
-                link=r[7], description=r[8]
-            )
-            try:
-                course.created_at = datetime.fromisoformat(r[9])
-            except:
-                pass
-            courses.append(course)
-        return courses
-
-    def delete_course(self, course_id: str):
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("DELETE FROM courses WHERE id = ?", (course_id,))
         conn.commit()
         conn.close()

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime
 from enum import Enum
 import uuid
 
@@ -21,6 +21,8 @@ class CourseType(Enum):
     BOOK = "Книга"
     VIDEO = "Відео"
     ARTICLE = "Стаття"
+    PROJECT = "Проект"
+    CHALLENGE = "Челендж"
 
 class CourseStatus(Enum):
     PLANNED = "Планую"
@@ -46,16 +48,23 @@ class Category:
     color: str = "#3b82f6"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
+# НОВИЙ КЛАС ДЛЯ ТЕМ
+@dataclass
+class Topic:
+    name: str
+    user_id: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
 @dataclass
 class LearningGoal:
     title: str
     description: str = ""
-    deadline: str = None  # "YYYY-MM-DD"
+    deadline: str = None
     priority: GoalPriority = GoalPriority.MEDIUM
     status: GoalStatus = GoalStatus.PLANNED
     user_id: str = ""
     category_id: str = None
-    link: str = ""  # НОВЕ ПОЛЕ
+    link: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -86,5 +95,7 @@ class Course:
     completed_units: int = 0
     link: str = ""
     description: str = ""
+    # Зберігаємо ID теми
+    topic_id: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))

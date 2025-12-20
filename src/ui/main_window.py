@@ -5,7 +5,8 @@ from src.ui.tabs.quest_tab import QuestTab
 from src.ui.tabs.habit_tab import HabitTab
 from src.ui.tabs.stats_tab import StatsTab
 from src.ui.tabs.calendar_tab import CalendarTab
-from src.ui.tabs.education_tab import EducationTab
+# Оновлено імпорт (клас ми перейменували в education_tab.py, або файл теж перейменуйте за бажанням)
+from src.ui.tabs.education_tab import DevelopmentTab
 
 
 class MainWindow(QMainWindow):
@@ -24,7 +25,6 @@ class MainWindow(QMainWindow):
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        # Збільшено зовнішні відступи головного вікна
         main_layout = QHBoxLayout(main_widget)
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
@@ -32,13 +32,12 @@ class MainWindow(QMainWindow):
         # --- SIDEBAR ---
         sidebar = QFrame()
         sidebar.setStyleSheet("background-color: #111827; border-right: 1px solid #1e3a8a; border-radius: 8px;")
-        sidebar.setFixedWidth(220)  # Трохи ширший сайдбар
+        sidebar.setFixedWidth(220)
         side_layout = QVBoxLayout(sidebar)
-        # Збільшено внутрішні відступи сайдбару
         side_layout.setContentsMargins(15, 25, 15, 25)
         side_layout.setSpacing(15)
 
-        # === ЛОГОТИП LGM ===
+        # === LOGO ===
         logo_container = QWidget()
         logo_container.setFixedHeight(60)
         logo_grid = QGridLayout(logo_container)
@@ -56,10 +55,8 @@ class MainWindow(QMainWindow):
         logo_grid.addWidget(lbl_shadow, 0, 0)
         logo_grid.addWidget(lbl_main, 0, 0)
         side_layout.addWidget(logo_container)
-        # ===================
 
         # Navigation Buttons
-        # Збільшено padding у кнопок
         btn_style = """
             QPushButton { 
                 text-align: left; 
@@ -79,10 +76,11 @@ class MainWindow(QMainWindow):
         self.btn_quests.setStyleSheet(btn_style)
         self.btn_quests.clicked.connect(lambda: self.switch_tab(0))
 
-        self.btn_education = QPushButton("🎓 Навчання")
-        self.btn_education.setCheckable(True)
-        self.btn_education.setStyleSheet(btn_style)
-        self.btn_education.clicked.connect(lambda: self.switch_tab(1))
+        # ОНОВЛЕНО КНОПКУ
+        self.btn_development = QPushButton("🚀 Розвиток")
+        self.btn_development.setCheckable(True)
+        self.btn_development.setStyleSheet(btn_style)
+        self.btn_development.clicked.connect(lambda: self.switch_tab(1))
 
         self.btn_habits = QPushButton("⚡ Звички")
         self.btn_habits.setCheckable(True)
@@ -100,7 +98,7 @@ class MainWindow(QMainWindow):
         self.btn_calendar.clicked.connect(lambda: self.switch_tab(4))
 
         side_layout.addWidget(self.btn_quests)
-        side_layout.addWidget(self.btn_education)
+        side_layout.addWidget(self.btn_development) # Було btn_education
         side_layout.addWidget(self.btn_habits)
         side_layout.addWidget(self.btn_stats)
         side_layout.addWidget(self.btn_calendar)
@@ -117,17 +115,17 @@ class MainWindow(QMainWindow):
 
         # --- CONTENT ---
         self.stack = QStackedWidget()
-        # Додаємо трохи відступу для контенту справа
         self.stack.setContentsMargins(5, 5, 5, 5)
 
         self.tab_quests = QuestTab(self.stack, self)
-        self.tab_education = EducationTab(self.stack, self)
+        # Оновлено ініціалізацію
+        self.tab_development = DevelopmentTab(self.stack, self)
         self.tab_habits = HabitTab(self.stack, self)
         self.tab_stats = StatsTab(self.stack, self)
         self.tab_calendar = CalendarTab(self.stack, self)
 
         self.stack.addWidget(self.tab_quests)
-        self.stack.addWidget(self.tab_education)
+        self.stack.addWidget(self.tab_development)
         self.stack.addWidget(self.tab_habits)
         self.stack.addWidget(self.tab_stats)
         self.stack.addWidget(self.tab_calendar)
@@ -140,7 +138,7 @@ class MainWindow(QMainWindow):
     def switch_tab(self, index):
         self.stack.setCurrentIndex(index)
         self.btn_quests.setChecked(index == 0)
-        self.btn_education.setChecked(index == 1)
+        self.btn_development.setChecked(index == 1)
         self.btn_habits.setChecked(index == 2)
         self.btn_stats.setChecked(index == 3)
         self.btn_calendar.setChecked(index == 4)
