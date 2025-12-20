@@ -101,7 +101,7 @@ class QuestCard(QFrame):
 
         # === BUTTONS IN HEADER ===
 
-        # 1. LINK BUTTON (Якщо є посилання)
+        # 1. LINK BUTTON
         if hasattr(self.goal, 'link') and self.goal.link:
             btn_link = QPushButton("🔗")
             btn_link.setFixedSize(30, 30)
@@ -113,7 +113,7 @@ class QuestCard(QFrame):
             btn_link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.goal.link)))
             header_layout.addWidget(btn_link)
 
-        # 2. EDIT BUTTON (GEAR ICON)
+        # 2. EDIT BUTTON
         btn_edit_gear = QPushButton("⚙️")
         btn_edit_gear.setFixedSize(30, 30)
         btn_edit_gear.setCursor(QCursor(Qt.PointingHandCursor))
@@ -124,7 +124,7 @@ class QuestCard(QFrame):
         btn_edit_gear.clicked.connect(self.edit_goal)
         header_layout.addWidget(btn_edit_gear)
 
-        # 3. DELETE BUTTON (X)
+        # 3. DELETE BUTTON
         delete_btn = QPushButton("✖")
         delete_btn.setFixedSize(28, 28)
         delete_btn.setCursor(QCursor(Qt.PointingHandCursor))
@@ -178,7 +178,7 @@ class QuestCard(QFrame):
         details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 5px; border: none;")
         layout.addWidget(details_lbl)
 
-        # 5. SUBGOALS
+        # 5. SUBGOALS EXPANDABLE AREA
         if self.subgoals:
             self.toggle_btn = QToolButton()
             self.toggle_btn.setText(f" Підцілі ({len(self.subgoals)})")
@@ -212,6 +212,7 @@ class QuestCard(QFrame):
                 chk.setChecked(sub.is_completed)
                 chk.setStyleSheet(
                     "QCheckBox { background: transparent; color: #e0e0e0; font-size: 14px; border: none; padding: 4px; }")
+                # Використовуємо lambda для передачі об'єкта підцілі
                 chk.stateChanged.connect(lambda state, s=sub: self.toggle_subgoal(state, s))
 
                 row.addWidget(chk)
@@ -236,22 +237,23 @@ class QuestCard(QFrame):
         btn_subgoals.setStyleSheet(btn_style)
         btn_subgoals.clicked.connect(self.open_subgoals)
 
-        btn_complete = QPushButton("Завершити")
-        btn_complete.setStyleSheet("""
+        # Зберігаємо кнопку в self, щоб маніпулювати видимістю
+        self.btn_complete = QPushButton("Завершити")
+        self.btn_complete.setStyleSheet("""
             QPushButton { 
                 background-color: #064e3b; color: white; border: 1px solid #10b981; 
                 border-radius: 6px; padding: 10px 14px; font-size: 13px; font-weight: 500;
             }
             QPushButton:hover { background-color: #065f46; }
         """)
-        btn_complete.clicked.connect(self.force_complete_goal)
+        self.btn_complete.clicked.connect(self.force_complete_goal)
 
         if self.goal.status == GoalStatus.COMPLETED:
-            btn_complete.setVisible(False)
+            self.btn_complete.setVisible(False)
 
         btn_layout.addWidget(btn_subgoals)
         btn_layout.addStretch()
-        btn_layout.addWidget(btn_complete)
+        btn_layout.addWidget(self.btn_complete)
         layout.addLayout(btn_layout)
 
     def get_title_text(self):
@@ -291,9 +293,12 @@ class QuestCard(QFrame):
             pass
 
     def toggle_subgoal(self, state, subgoal):
+        """Обробка кліку по підцілі на картці (з автозавершенням)."""
+        # 1. Зберігаємо статус підцілі
         subgoal.is_completed = (state == Qt.Checked)
         self.storage.save_subgoal(subgoal)
 
+        # 2. Оновлюємо прогрес-бар візуально (щоб юзер бачив одразу)
         all_subs = self.storage.get_subgoals(self.goal.id)
         total = len(all_subs)
         completed = sum(1 for s in all_subs if s.is_completed)
@@ -302,25 +307,60 @@ class QuestCard(QFrame):
             self.progress_bar.setValue(completed)
             self.progress_bar.setFormat(f"%p% ({completed}/{total})")
 
-        old_status = self.goal.status
-        new_status = old_status
+        # 3. Викликаємо логіку автозавершення через таймер (безпека від крашів)
+        QTimer.singleShot(50, self._check_completion_logic)
 
-        if total > 0:
-            if completed == total:
-                new_status = GoalStatus.COMPLETED
-            elif completed > 0:
-                new_status = GoalStatus.IN_PROGRESS
-            else:
-                new_status = GoalStatus.PLANNED
+    def _check_completion_logic(self):
+        """Перевіряє, чи всі підцілі виконані, і оновлює статус + UI."""
+        # Актуальні дані
+        all_subs = self.storage.get_subgoals(self.goal.id)
+        total = len(all_subs)
+        completed = sum(1 for s in all_subs if s.is_completed)
 
-        if new_status != old_status:
-            self.goal.status = new_status
+        # Отримуємо користувача для статистики
+        user = self.storage.get_user_by_id(self.goal.user_id)
+        if not user: return
+
+        # АВТОЗАВЕРШЕННЯ
+        if total > 0 and completed == total:
+            if self.goal.status != GoalStatus.COMPLETED:
+                self.goal.status = GoalStatus.COMPLETED
+                self.storage.save_goal(self.goal)
+
+                # Статистика +1
+                user.total_completed_goals += 1
+                self.storage.update_user_stats(user.id, user.total_completed_goals)
+
+                # Оновлюємо UI картки
+                self.title_lbl.setText(self.get_title_text())
+                self.btn_complete.setVisible(False)
+
+                #QMessageBox.information(self, "Вітаємо", "Всі підцілі виконано! Головна ціль завершена.")
+
+        # ВІДКАТ (якщо зняли галочку у завершеної цілі)
+        elif self.goal.status == GoalStatus.COMPLETED and completed < total:
+            self.goal.status = GoalStatus.IN_PROGRESS if completed > 0 else GoalStatus.PLANNED
             self.storage.save_goal(self.goal)
+
+            # Статистика -1
+            if user.total_completed_goals > 0:
+                user.total_completed_goals -= 1
+                self.storage.update_user_stats(user.id, user.total_completed_goals)
+
+            # Оновлюємо UI картки
             self.title_lbl.setText(self.get_title_text())
+            self.btn_complete.setVisible(True)
 
     def force_complete_goal(self):
         self.goal.status = GoalStatus.COMPLETED
         self.storage.save_goal(self.goal)
+
+        # Оновлюємо статистику при ручному завершенні
+        user = self.storage.get_user_by_id(self.goal.user_id)
+        if user:
+            user.total_completed_goals += 1
+            self.storage.update_user_stats(user.id, user.total_completed_goals)
+
         self.parent_tab.update_list()
 
     def confirm_delete(self):
@@ -334,11 +374,11 @@ class QuestCard(QFrame):
         from .subgoals_dialog import SubgoalsDialog
         dialog = SubgoalsDialog(self.parent_tab.mw, self.goal.id, self.storage)
         if dialog.exec_():
+            # Після закриття діалогу оновлюємо список, бо статус міг змінитись там
             self.parent_tab.update_list()
 
     def edit_goal(self):
         from .edit_goal_dialog import EditGoalDialog
-        # ВИПРАВЛЕНО: передача аргументів по іменах, щоб уникнути плутанини
         dialog = EditGoalDialog(
             self.parent_tab.mw,
             user_id=self.goal.user_id,
