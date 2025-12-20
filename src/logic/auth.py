@@ -16,7 +16,6 @@ class AuthService:
     def register(self, username, password, confirm_password=None):
         """
         Реєстрація нового користувача.
-        Тепер приймає confirm_password для перевірки.
         """
         if not username or not password:
             return False, "Заповніть всі поля"
@@ -24,7 +23,7 @@ class AuthService:
         if len(password) < 4:
             return False, "Пароль надто короткий (мін. 4 символи)"
 
-        # Перевірка підтвердження пароля (якщо передано)
+        # Перевірка підтвердження пароля
         if confirm_password is not None and password != confirm_password:
             return False, "Паролі не співпадають"
 
@@ -32,8 +31,16 @@ class AuthService:
             return False, "Користувач вже існує"
 
         # Створення користувача
+        # (Передбачається, що User генерує ID автоматично, наприклад, через uuid в моделі)
         user = User(username=username, password_hash=self._hash_password(password))
         self.storage.create_user(user)
+
+        # --- ВИПРАВЛЕННЯ: АВТОМАТИЧНИЙ ВХІД ---
+        # Одразу зберігаємо користувача як поточного і записуємо сесію
+        self.current_user = user
+        self.save_session(user.id)
+        # --------------------------------------
+
         return True, "Акаунт створено успішно"
 
     def login(self, username, password):
@@ -56,7 +63,7 @@ class AuthService:
             try:
                 os.remove(self.session_file)
             except OSError:
-                pass  # Ігноруємо помилки видалення файлу
+                pass
 
     def save_session(self, user_id):
         try:
@@ -81,9 +88,6 @@ class AuthService:
         if self.current_user:
             return self.current_user.id
 
-        # Спроба завантажити з сесії, якщо об'єкт ще не створено
+        # Спроба завантажити з сесії, якщо об'єкт ще не ініціалізовано
         user_id = self.load_session()
-        if user_id:
-            # Опціонально можна підвантажити юзера, але поки повернемо ID
-            return user_id
-        return None
+        return user_id

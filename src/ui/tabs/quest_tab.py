@@ -34,7 +34,7 @@ class QuestTab(BaseTab):
             "Сорт: Пріоритет",
             "Сорт: Статус"
         ])
-        # Однаковий стиль та ширина з категоріями
+        # Jednakovyy styl ta shyryna z kategoriyamy
         self.sort_combo.setFixedWidth(150)
         self.sort_combo.setStyleSheet(
             "background-color: #1e3a8a; color: white; border: 1px solid #3b82f6; border-radius: 4px;")
@@ -73,15 +73,18 @@ class QuestTab(BaseTab):
     def setup_footer(self):
         footer = QHBoxLayout()
         footer.setContentsMargins(10, 10, 10, 10)
-        btn_style = "QPushButton { background-color: #1e3a8a; color: white; border: 2px solid #3b82f6; border-radius: 8px; padding: 10px 15px; font-weight: bold; }"
+
+        # --- ЗМІНА: Додано QPushButton:hover як у habit_tab.py ---
+        btn_style = "QPushButton { background-color: #1e3a8a; color: white; border: 2px solid #3b82f6; border-radius: 8px; padding: 10px 15px; font-weight: bold; } QPushButton:hover { background-color: #2563eb; }"
 
         btn_add = QPushButton("➕ Нова Ціль")
         btn_add.setStyleSheet(btn_style)
         btn_add.clicked.connect(self.add_goal)
 
+        # --- ЗМІНА: Додано hover для фіолетової кнопки ---
         btn_ai = QPushButton("✨ ШІ Ціль")
         btn_ai.setStyleSheet(
-            "QPushButton { background-color: #7c3aed; color: white; border: 2px solid #8b5cf6; border-radius: 8px; padding: 10px 15px; font-weight: bold; }")
+            "QPushButton { background-color: #7c3aed; color: white; border: 2px solid #8b5cf6; border-radius: 8px; padding: 10px 15px; font-weight: bold; } QPushButton:hover { background-color: #8b5cf6; }")
         btn_ai.clicked.connect(self.open_ai_dialog)
 
         btn_refresh = QPushButton("🔄 Оновити")
@@ -92,9 +95,10 @@ class QuestTab(BaseTab):
         btn_search.setStyleSheet(btn_style)
         btn_search.clicked.connect(self.open_search)
 
+        # --- ЗМІНА: Додано hover для червоної кнопки ---
         btn_cleanup = QPushButton("🗑 Автовидалення")
         btn_cleanup.setStyleSheet(
-            "QPushButton { background-color: #7f1d1d; color: white; border: 2px solid #b91c1c; border-radius: 8px; padding: 10px 15px; font-weight: bold; }")
+            "QPushButton { background-color: #7f1d1d; color: white; border: 2px solid #b91c1c; border-radius: 8px; padding: 10px 15px; font-weight: bold; } QPushButton:hover { background-color: #991b1b; }")
         btn_cleanup.clicked.connect(self.auto_cleanup)
 
         footer.addWidget(btn_add)
