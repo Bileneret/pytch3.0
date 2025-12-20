@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPus
     QGridLayout, QMessageBox, QFileDialog
 from PyQt5.QtCore import Qt, pyqtSignal
 import json
+
 from src.ui.tabs.quest_tab import QuestTab
 from src.ui.tabs.habit_tab import HabitTab
 from src.ui.tabs.stats_tab import StatsTab
@@ -10,7 +11,9 @@ from src.ui.tabs.education_tab import DevelopmentTab
 
 
 class MainWindow(QMainWindow):
+    # Сигнали для комунікації з main.py
     logout_requested = pyqtSignal()
+    sleep_requested = pyqtSignal()  # Новий сигнал
 
     def __init__(self, user_id, storage):
         super().__init__()
@@ -23,13 +26,18 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
         self.setStyleSheet("background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI';")
 
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(5)
+        # Основний віджет
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
 
-        # --- SIDEBAR ---
+        self.main_layout = QHBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(5, 5, 5, 5)
+        self.main_layout.setSpacing(5)
+
+        self.setup_sidebar()
+        self.setup_content()
+
+    def setup_sidebar(self):
         sidebar = QFrame()
         sidebar.setStyleSheet("background-color: #111827; border-right: 1px solid #1e3a8a; border-radius: 8px;")
         sidebar.setFixedWidth(220)
@@ -104,6 +112,26 @@ class MainWindow(QMainWindow):
 
         side_layout.addStretch()
 
+        # --- SLEEP MODE BUTTON ---
+        self.btn_sleep = QPushButton("🌙 У сон")
+        self.btn_sleep.setCursor(Qt.PointingHandCursor)
+        self.btn_sleep.setStyleSheet("""
+            QPushButton { 
+                background-color: #1e40af; 
+                color: #e0e7ff; 
+                border-radius: 6px; 
+                padding: 10px; 
+                font-size: 13px;
+                font-weight: bold;
+                border: 1px solid #3b82f6;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        # ТУТ МИ ПРОСТО ЕМІТИМО СИГНАЛ
+        self.btn_sleep.clicked.connect(self.sleep_requested.emit)
+        side_layout.addWidget(self.btn_sleep)
+        # -------------------------
+
         # --- IMPORT / EXPORT BUTTONS ---
         data_btns_layout = QHBoxLayout()
         data_btns_layout.setSpacing(5)
@@ -137,13 +165,12 @@ class MainWindow(QMainWindow):
         btn_logout = QPushButton("Вийти")
         btn_logout.setStyleSheet(
             "background-color: #7f1d1d; color: white; border-radius: 6px; padding: 12px; font-weight: bold;")
-        # Підключаємо до методу підтвердження, а не напряму
         btn_logout.clicked.connect(self.confirm_logout)
         side_layout.addWidget(btn_logout)
 
-        main_layout.addWidget(sidebar)
+        self.main_layout.addWidget(sidebar)
 
-        # --- CONTENT ---
+    def setup_content(self):
         self.stack = QStackedWidget()
         self.stack.setContentsMargins(5, 5, 5, 5)
 
@@ -159,7 +186,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.tab_stats)
         self.stack.addWidget(self.tab_calendar)
 
-        main_layout.addWidget(self.stack)
+        self.main_layout.addWidget(self.stack)
 
         self.btn_quests.setChecked(True)
         self.stack.setCurrentIndex(0)
@@ -179,7 +206,6 @@ class MainWindow(QMainWindow):
         if index == 4: self.tab_calendar.highlight_dates()
 
     def confirm_logout(self):
-        """Діалог підтвердження виходу."""
         reply = QMessageBox.question(
             self,
             "Підтвердження виходу",
@@ -190,7 +216,6 @@ class MainWindow(QMainWindow):
             self.logout_requested.emit()
 
     def export_data(self):
-        """Експорт даних у JSON."""
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Експорт даних", "lgm_backup.json", "JSON Files (*.json);;All Files (*)", options=options
@@ -205,7 +230,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Помилка", f"Не вдалося експортувати дані:\n{e}")
 
     def import_data(self):
-        """Імпорт даних з JSON."""
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Імпорт даних", "", "JSON Files (*.json);;All Files (*)", options=options
@@ -225,9 +249,6 @@ class MainWindow(QMainWindow):
 
                 self.storage.import_user_data(data, self.user_id)
                 QMessageBox.information(self, "Успіх", "Дані успішно імпортовано!")
-
-                # Оновлюємо всі вкладки
                 self.switch_tab(self.stack.currentIndex())
-
             except Exception as e:
                 QMessageBox.critical(self, "Помилка", f"Не вдалося імпортувати дані:\n{e}")

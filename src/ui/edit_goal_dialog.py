@@ -1,8 +1,8 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QLineEdit, QTextEdit,
-    QComboBox, QPushButton, QLabel, QHBoxLayout, QMessageBox, QDateEdit
+    QComboBox, QPushButton, QLabel, QHBoxLayout, QMessageBox, QDateEdit, QTimeEdit
 )
-from PyQt5.QtCore import QDate
+from PyQt5.QtCore import QDate, QTime, Qt
 from src.models import LearningGoal, GoalPriority, GoalStatus
 
 
@@ -13,13 +13,13 @@ class EditGoalDialog(QDialog):
         self.storage = storage
         self.goal = goal
         self.setWindowTitle("Створення цілі" if not goal else "Редагування цілі")
-        self.resize(400, 450)
+        self.resize(400, 500)
         self.setup_ui()
 
     def setup_ui(self):
         self.setStyleSheet("""
             QDialog { background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI'; }
-            QLineEdit, QTextEdit, QComboBox, QDateEdit { 
+            QLineEdit, QTextEdit, QComboBox, QDateEdit, QTimeEdit { 
                 background-color: #111827; border: 1px solid #1e3a8a; border-radius: 4px; padding: 8px; color: white;
             }
             QLabel { font-weight: bold; margin-top: 5px; }
@@ -53,7 +53,7 @@ class EditGoalDialog(QDialog):
             idx = self.prio_combo.findData(self.goal.priority)
             self.prio_combo.setCurrentIndex(idx)
         else:
-            self.prio_combo.setCurrentIndex(1)  # Medium default
+            self.prio_combo.setCurrentIndex(1)
         col_prio.addWidget(self.prio_combo)
 
         col_cat = QVBoxLayout()
@@ -66,31 +66,42 @@ class EditGoalDialog(QDialog):
         row1.addLayout(col_cat)
         layout.addLayout(row1)
 
-        # Рядок Дедлайн (Обов'язковий)
+        # --- ДЕДЛАЙН (ДАТА + ЧАС) ---
+        layout.addWidget(QLabel("Дедлайн:"))
         row2 = QHBoxLayout()
 
-        col_deadline = QVBoxLayout()
-        col_deadline.addWidget(QLabel("Дедлайн:"))  # Прибрали "(опціонально)"
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("yyyy-MM-dd")
+
+        self.time_edit = QTimeEdit()
+        self.time_edit.setDisplayFormat("HH:mm")
+
+        # Встановлення значень
         if self.goal and self.goal.deadline:
-            self.date_edit.setDate(QDate.fromString(self.goal.deadline, "yyyy-MM-dd"))
+            # Спробуємо розпарсити дату і час
+            parts = self.goal.deadline.split(" ")
+            self.date_edit.setDate(QDate.fromString(parts[0], "yyyy-MM-dd"))
+            if len(parts) > 1:
+                self.time_edit.setTime(QTime.fromString(parts[1], "HH:mm"))
+            else:
+                self.time_edit.setTime(QTime(12, 0))  # Default time
         else:
             self.date_edit.setDate(QDate.currentDate().addDays(7))
-        col_deadline.addWidget(self.date_edit)
+            self.time_edit.setTime(QTime(23, 59))
 
-        row2.addLayout(col_deadline)
+        row2.addWidget(self.date_edit, 2)
+        row2.addWidget(self.time_edit, 1)
         layout.addLayout(row2)
+        # -----------------------------
 
-        # Посилання (НОВЕ)
+        # Посилання
         layout.addWidget(QLabel("Посилання (опціонально):"))
         self.link_inp = QLineEdit()
         self.link_inp.setPlaceholderText("https://...")
         if self.goal and self.goal.link:
             self.link_inp.setText(self.goal.link)
         layout.addWidget(self.link_inp)
-
-        # Статус прибрали (завжди PLANNED для нових, або старий для існуючих)
 
         save_btn = QPushButton("Зберегти")
         save_btn.clicked.connect(self.save)
@@ -115,10 +126,13 @@ class EditGoalDialog(QDialog):
 
         prio = self.prio_combo.currentData()
         cat_id = self.cat_combo.currentData()
-        deadline = self.date_edit.date().toString("yyyy-MM-dd")
-        link = self.link_inp.text().strip()
 
-        # Для нових цілей - PLANNED, для старих - залишаємо як є
+        # Комбінуємо дату і час
+        date_str = self.date_edit.date().toString("yyyy-MM-dd")
+        time_str = self.time_edit.time().toString("HH:mm")
+        full_deadline = f"{date_str} {time_str}"
+
+        link = self.link_inp.text().strip()
         status = self.goal.status if self.goal else GoalStatus.PLANNED
 
         if self.goal:
@@ -126,9 +140,9 @@ class EditGoalDialog(QDialog):
             self.goal.description = self.desc_inp.toPlainText()
             self.goal.priority = prio
             self.goal.category_id = cat_id
-            self.goal.deadline = deadline
+            self.goal.deadline = full_deadline
             self.goal.link = link
-            self.goal.status = status  # Статус не змінюємо тут
+            self.goal.status = status
             self.storage.save_goal(self.goal)
         else:
             new_goal = LearningGoal(
@@ -137,7 +151,7 @@ class EditGoalDialog(QDialog):
                 priority=prio,
                 user_id=self.user_id,
                 category_id=cat_id,
-                deadline=deadline,
+                deadline=full_deadline,
                 link=link,
                 status=GoalStatus.PLANNED
             )
