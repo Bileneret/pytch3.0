@@ -345,39 +345,44 @@ class SubgoalsDialog(QDialog):
         total = len(all_subs)
         completed = sum(1 for s in all_subs if s.is_completed)
 
+        # Якщо підцілей немає, логіку пропускаємо
+        if total == 0: return
+
         # Оновлюємо об'єкт цілі з бази даних, щоб уникнути конфліктів
         goals = self.storage.get_goals(self.parent_window.user_id)
         current_goal = next((g for g in goals if g.id == self.goal_id), None)
         if not current_goal: return
         self.goal = current_goal
 
-        # Отримуємо користувача з бази даних (ВИПРАВЛЕННЯ КРАШУ)
-        # Раніше ми зверталися до self.parent_window.user, якого не існувало
+        # Отримуємо користувача з бази даних
         user = self.storage.get_user_by_id(self.parent_window.user_id)
         if not user: return
 
-        # ЛОГІКА АВТОЗАВЕРШЕННЯ
-        if total > 0 and completed == total:
-            if self.goal.status != GoalStatus.COMPLETED:
-                self.goal.status = GoalStatus.COMPLETED
-                self.storage.save_goal(self.goal)
+        # Визначаємо новий статус
+        new_status = self.goal.status
 
-                # Оновлюємо статистику
+        if completed == total:
+            new_status = GoalStatus.COMPLETED
+        elif completed > 0:
+            new_status = GoalStatus.IN_PROGRESS
+        else:
+            new_status = GoalStatus.PLANNED
+
+        # Застосовуємо зміни, якщо статус відрізняється
+        if new_status != self.goal.status:
+            # Оновлення статистики
+            if new_status == GoalStatus.COMPLETED and self.goal.status != GoalStatus.COMPLETED:
                 user.total_completed_goals += 1
                 self.storage.update_user_stats(user.id, user.total_completed_goals)
 
-                #QMessageBox.information(self, "Вітаємо", "Всі підцілі виконано! Головна ціль завершена.")
+            elif self.goal.status == GoalStatus.COMPLETED and new_status != GoalStatus.COMPLETED:
+                if user.total_completed_goals > 0:
+                    user.total_completed_goals -= 1
+                    self.storage.update_user_stats(user.id, user.total_completed_goals)
 
-        # ЛОГІКА ВІДКАТУ (Автовідміна завершення)
-        elif self.goal.status == GoalStatus.COMPLETED and completed < total:
-            # Повертаємо в статус "В процесі" (або PLANNED)
-            self.goal.status = GoalStatus.IN_PROGRESS if completed > 0 else GoalStatus.PLANNED
+            # Зберігаємо зміни
+            self.goal.status = new_status
             self.storage.save_goal(self.goal)
-
-            # Відкат статистики
-            if user.total_completed_goals > 0:
-                user.total_completed_goals -= 1
-                self.storage.update_user_stats(user.id, user.total_completed_goals)
 
     def generate_ai_subgoals(self):
         if not self.goal: return

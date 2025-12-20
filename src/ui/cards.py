@@ -311,45 +311,52 @@ class QuestCard(QFrame):
         QTimer.singleShot(50, self._check_completion_logic)
 
     def _check_completion_logic(self):
-        """Перевіряє, чи всі підцілі виконані, і оновлює статус + UI."""
+        """Перевіряє прогрес підцілей та автоматично змінює статус головної цілі."""
         # Актуальні дані
         all_subs = self.storage.get_subgoals(self.goal.id)
         total = len(all_subs)
         completed = sum(1 for s in all_subs if s.is_completed)
 
+        # Якщо підцілей немає, авто-статус не чіпаємо (залишаємо ручне керування)
+        if total == 0:
+            return
+
         # Отримуємо користувача для статистики
         user = self.storage.get_user_by_id(self.goal.user_id)
         if not user: return
 
-        # АВТОЗАВЕРШЕННЯ
-        if total > 0 and completed == total:
-            if self.goal.status != GoalStatus.COMPLETED:
-                self.goal.status = GoalStatus.COMPLETED
-                self.storage.save_goal(self.goal)
+        # Визначаємо новий статус
+        new_status = self.goal.status  # За замовчуванням поточний
 
-                # Статистика +1
+        if completed == total:
+            new_status = GoalStatus.COMPLETED
+        elif completed > 0:
+            new_status = GoalStatus.IN_PROGRESS
+        else:
+            new_status = GoalStatus.PLANNED
+
+        # Якщо статус змінився - зберігаємо та оновлюємо статистику
+        if new_status != self.goal.status:
+            # Логіка статистики (Completed <-> Not Completed)
+            if new_status == GoalStatus.COMPLETED and self.goal.status != GoalStatus.COMPLETED:
+                # Ціль стала виконаною -> +1
                 user.total_completed_goals += 1
                 self.storage.update_user_stats(user.id, user.total_completed_goals)
+                self.btn_complete.setVisible(False)  # Ховаємо кнопку завершення
 
-                # Оновлюємо UI картки
-                self.title_lbl.setText(self.get_title_text())
-                self.btn_complete.setVisible(False)
+            elif self.goal.status == GoalStatus.COMPLETED and new_status != GoalStatus.COMPLETED:
+                # Ціль перестала бути виконаною -> -1
+                if user.total_completed_goals > 0:
+                    user.total_completed_goals -= 1
+                    self.storage.update_user_stats(user.id, user.total_completed_goals)
+                self.btn_complete.setVisible(True)  # Повертаємо кнопку завершення
 
-                #QMessageBox.information(self, "Вітаємо", "Всі підцілі виконано! Головна ціль завершена.")
-
-        # ВІДКАТ (якщо зняли галочку у завершеної цілі)
-        elif self.goal.status == GoalStatus.COMPLETED and completed < total:
-            self.goal.status = GoalStatus.IN_PROGRESS if completed > 0 else GoalStatus.PLANNED
+            # Зберігаємо новий статус
+            self.goal.status = new_status
             self.storage.save_goal(self.goal)
 
-            # Статистика -1
-            if user.total_completed_goals > 0:
-                user.total_completed_goals -= 1
-                self.storage.update_user_stats(user.id, user.total_completed_goals)
-
-            # Оновлюємо UI картки
+            # Оновлюємо заголовок картки (іконку статусу)
             self.title_lbl.setText(self.get_title_text())
-            self.btn_complete.setVisible(True)
 
     def force_complete_goal(self):
         self.goal.status = GoalStatus.COMPLETED
