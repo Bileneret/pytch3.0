@@ -3,7 +3,12 @@ import random
 import sqlite3
 from datetime import datetime, timedelta
 from src.storage import StorageService
-from src.models import User, LearningGoal, GoalPriority, GoalStatus, SubGoal, Habit, Category
+# ДОДАНО нові моделі для імпорту
+from src.models import (
+    User, LearningGoal, GoalPriority, GoalStatus,
+    SubGoal, Habit, Category,
+    Topic, Course, CourseType, CourseStatus
+)
 
 # Списки слів
 VERBS = [
@@ -107,8 +112,6 @@ def seed_data():
             last_completed_date=last_date_str
         )
 
-        # ВИПРАВЛЕНО: Записуємо звичку через той самий курсор 'c',
-        # замість виклику storage.save_habit(habit)
         c.execute('''INSERT OR REPLACE INTO habits VALUES (?, ?, ?, ?, ?)''',
                   (habit.id, habit.user_id, habit.title, habit.streak, habit.last_completed_date))
 
@@ -124,7 +127,7 @@ def seed_data():
     conn.commit()  # Фіксуємо зміни звичок і логів
     conn.close()  # Закриваємо з'єднання перед наступним блоком
 
-    # 4. ЦІЛІ (Тут можна безпечно використовувати storage, бо попереднє з'єднання закрите)
+    # 4. ЦІЛІ
     print("🎯 Генерація 100 цілей...")
     priorities = list(GoalPriority)
 
@@ -173,7 +176,80 @@ def seed_data():
             )
             storage.save_subgoal(sub)
 
-    print("✅ Успішно! База даних заповнена з історією звичок.")
+    # 5. РОЗВИТОК (DEVELOPMENT)
+    print("🚀 Генерація 25 матеріалів для Розвитку...")
+
+    # Нестандартні теми
+    custom_topics_names = [
+        "GameDev 🎮", "Data Science 📊", "Digital Art 🎨",
+        "Crypto 🪙", "Psychology 🧠", "Music 🎸", "Biohacking 🧬"
+    ]
+
+    db_topics = []
+    # Створюємо теми в БД
+    for t_name in custom_topics_names:
+        t = Topic(name=t_name, user_id=user_id)
+        storage.save_topic(t)
+        db_topics.append(t)
+
+    # Шаблони назв
+    dev_prefixes = ["Основи", "Просунутий курс", "Майстер-клас", "Книга по", "Проект:", "Лекція:"]
+    dev_suffixes = ["для новачків", "PRO", "2025", "за 30 днів", "Part 1", "Ultimate Guide"]
+
+    for i in range(25):
+        topic = random.choice(db_topics)
+
+        # Генеруємо назву: "Основи GameDev для новачків"
+        # Беремо перше слово з теми (наприклад 'GameDev' з 'GameDev 🎮') для чистоти назви
+        topic_clean_word = topic.name.split()[0]
+        title = f"{random.choice(dev_prefixes)} {topic_clean_word} {random.choice(dev_suffixes)}"
+
+        # Тип (Курс, Книга, Челендж...)
+        c_type = random.choice(list(CourseType))
+
+        # Загальний обсяг (сторінок, уроків, відсотків)
+        if c_type == CourseType.BOOK:
+            total = random.randint(200, 800)
+        elif c_type == CourseType.PROJECT:
+            total = 100
+        else:
+            total = random.randint(10, 100)
+
+        # Прогрес (скільки зроблено)
+        # 10% шанс, що тільки почали (0), 10% що закінчили, 80% - випадкове число
+        rand_factor = random.random()
+        if rand_factor < 0.1:
+            completed = 0
+        elif rand_factor > 0.9:
+            completed = total
+        else:
+            completed = random.randint(0, total)
+
+        # Визначаємо статус на основі прогресу
+        if completed == 0:
+            status = CourseStatus.PLANNED
+        elif completed == total:
+            status = CourseStatus.COMPLETED
+        else:
+            status = CourseStatus.IN_PROGRESS
+
+        course = Course(
+            title=title,
+            user_id=user_id,
+            topic_id=topic.id,
+            course_type=c_type,
+            total_units=total,
+            completed_units=completed,
+            status=status,
+            description=f"Автоматично згенерований матеріал №{i + 1}"
+        )
+
+        # Трохи розкидаємо дати створення
+        course.created_at = datetime.now() - timedelta(days=random.randint(0, 60))
+
+        storage.save_course(course)
+
+    print("✅ Успішно! База даних заповнена з історією звичок, цілями та розвитком.")
     print(f"   Користувач: {username} / 123123")
 
 
