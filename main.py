@@ -3,7 +3,7 @@ import os
 from PyQt5.QtWidgets import QApplication
 from src.storage import StorageService
 from src.logic.auth import AuthService
-from src.ui.auth import LoginWindow
+from src.ui.auth import LoginWindow  # <-- ЗМІНА: Імпортуємо AuthWindow
 from src.ui.main_window import MainWindow
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -43,30 +43,34 @@ class AppController:
         if self.main_window:
             self.main_window.close()
 
+        # <-- ЗМІНА: Використовуємо AuthWindow
         self.login_window = LoginWindow(self.auth_service)
         self.login_window.login_successful.connect(self.on_login_success)
         self.login_window.show()
 
-    def on_login_success(self):
+    def on_login_success(self, user): # <-- ЗМІНА: Приймаємо user
         """Коли вхід успішний (через кнопку або реєстрацію)."""
         if self.login_window:
             self.login_window.close()
 
-        user_id = self.auth_service.get_current_user_id()
-        self.show_main_window(user_id)
+        # Ми отримуємо об'єкт user з сигналу, беремо його ID
+        self.show_main_window(user.id)
 
     def show_main_window(self, user_id):
         """Відкрити головне вікно."""
-        # Передаємо ДВА аргументи, як у вашому оригінальному файлі
         self.main_window = MainWindow(user_id, self.storage)
         # Підключаємо сигнал виходу до методу logout
         self.main_window.logout_requested.connect(self.logout)
         self.main_window.show()
 
     def logout(self):
-        """Процес виходу з акаунту."""
-        self.auth_service.clear_session()  # Видаляємо файл сесії
-        self.show_login()  # Повертаємось на екран входу
+        """Вихід з акаунту."""
+        self.auth_service.logout()
+        # Закриваємо головне вікно
+        if self.main_window:
+            self.main_window.close()
+        # Показуємо вікно входу
+        self.show_login()
 
     def run(self):
         sys.exit(self.app.exec_())

@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit,
                              QPushButton, QMessageBox, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QColor
-
+from src.ui.faq_dialog import FAQDialog  # Імпорт діалогу FAQ
 
 class LoginWindow(QWidget):
     login_successful = pyqtSignal()
@@ -92,12 +92,33 @@ class LoginWindow(QWidget):
         self.confirm_input.hide()
         layout.addWidget(self.confirm_input)
 
-        # Кнопка
+        # Кнопка Дії (Вхід/Реєстрація)
         self.btn_action = QPushButton("УВІЙТИ")
         self.btn_action.clicked.connect(self.handle_action)
         layout.addWidget(self.btn_action)
 
-        # Перемикач
+        # --- FAQ BUTTON (ДОДАНО) ---
+        # Розміщується над кнопкою перемикання режиму
+        self.btn_faq = QPushButton("Часті запитання (FAQ)")
+        self.btn_faq.setStyleSheet("""
+            QPushButton {
+                background-color: transparent; 
+                border: none;
+                color: #90caf9; 
+                text-decoration: underline;
+                font-size: 13px;
+                margin-top: 5px;
+            }
+            QPushButton:hover {
+                color: #64b5f6;
+            }
+        """)
+        self.btn_faq.setCursor(Qt.PointingHandCursor)
+        self.btn_faq.clicked.connect(self.open_faq)
+        layout.addWidget(self.btn_faq)
+        # ---------------------------
+
+        # Перемикач (Вхід <-> Реєстрація)
         self.toggle_mode_btn = QPushButton("Немає акаунту? Зареєструватися")
         self.toggle_mode_btn.setStyleSheet("""
             QPushButton {
@@ -136,11 +157,19 @@ class LoginWindow(QWidget):
 
         if self.is_registration:
             confirm = self.confirm_input.text()
+            # Зверніть увагу: переконайтеся, що ваш AuthService підтримує такий виклик
             success, msg = self.auth_service.register(username, password, confirm)
         else:
+            # Зверніть увагу: переконайтеся, що ваш AuthService підтримує такий виклик
             success, msg = self.auth_service.login(username, password)
 
         if success:
             self.login_successful.emit()
         else:
             QMessageBox.warning(self, "Помилка", msg)
+
+    def open_faq(self):
+        """Відкриває діалог з питаннями."""
+        # Переконайтеся, що файл src/ui/faq_dialog.py існує (код був у попередньому кроці)
+        dialog = FAQDialog(self)
+        dialog.exec_()
