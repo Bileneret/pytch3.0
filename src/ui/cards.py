@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QFrame, QCheckBox, QProgressBar, QMessageBox, QSizePolicy, QToolButton)
-from PyQt5.QtCore import Qt, QTimer, QSize
-from PyQt5.QtGui import QColor, QCursor
+from PyQt5.QtCore import Qt, QTimer, QSize, QUrl
+from PyQt5.QtGui import QColor, QCursor, QDesktopServices
 from ..models import GoalStatus
 from datetime import date
 import sip
@@ -64,7 +64,6 @@ class QuestCard(QFrame):
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(2)
 
-        # Title (Зберігаємо посилання на лейбл, щоб оновлювати текст без перемальовки картки)
         self.title_lbl = QLabel(self.get_title_text())
         self.title_lbl.setWordWrap(True)
         self.title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: white; border: none;")
@@ -100,9 +99,35 @@ class QuestCard(QFrame):
 
         header_layout.addWidget(title_widget, 1)
 
-        # Delete Button
+        # === BUTTONS IN HEADER ===
+
+        # 1. LINK BUTTON (Якщо є посилання)
+        if hasattr(self.goal, 'link') and self.goal.link:
+            btn_link = QPushButton("🔗")
+            btn_link.setFixedSize(30, 30)
+            btn_link.setCursor(QCursor(Qt.PointingHandCursor))
+            btn_link.setStyleSheet("""
+                QPushButton { background-color: #0f172a; border-radius: 15px; color: #3b82f6; border: 1px solid #1e40af; }
+                QPushButton:hover { background-color: #1e3a8a; }
+            """)
+            btn_link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.goal.link)))
+            header_layout.addWidget(btn_link)
+
+        # 2. EDIT BUTTON (GEAR ICON)
+        btn_edit_gear = QPushButton("⚙️")
+        btn_edit_gear.setFixedSize(30, 30)
+        btn_edit_gear.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_edit_gear.setStyleSheet("""
+            QPushButton { background-color: transparent; color: #94a3b8; border: none; font-size: 18px; }
+            QPushButton:hover { color: white; }
+        """)
+        btn_edit_gear.clicked.connect(self.edit_goal)
+        header_layout.addWidget(btn_edit_gear)
+
+        # 3. DELETE BUTTON (X)
         delete_btn = QPushButton("✖")
         delete_btn.setFixedSize(28, 28)
+        delete_btn.setCursor(QCursor(Qt.PointingHandCursor))
         delete_btn.setStyleSheet("""
             QPushButton { background-color: transparent; color: #ef5350; border: none; font-size: 18px; font-weight: bold; }
             QPushButton:hover { color: #ff8a80; }
@@ -153,7 +178,7 @@ class QuestCard(QFrame):
         details_lbl.setStyleSheet("font-size: 12px; color: #64748b; margin-top: 5px; border: none;")
         layout.addWidget(details_lbl)
 
-        # 5. SUBGOALS (COLLAPSIBLE)
+        # 5. SUBGOALS
         if self.subgoals:
             self.toggle_btn = QToolButton()
             self.toggle_btn.setText(f" Підцілі ({len(self.subgoals)})")
@@ -197,7 +222,7 @@ class QuestCard(QFrame):
 
         layout.addSpacing(8)
 
-        # 6. BUTTONS
+        # 6. BOTTOM BUTTONS
         btn_layout = QHBoxLayout()
         btn_style = """
             QPushButton { 
@@ -211,10 +236,6 @@ class QuestCard(QFrame):
         btn_subgoals.setStyleSheet(btn_style)
         btn_subgoals.clicked.connect(self.open_subgoals)
 
-        btn_edit = QPushButton("Змінити")
-        btn_edit.setStyleSheet(btn_style)
-        btn_edit.clicked.connect(self.edit_goal)
-
         btn_complete = QPushButton("Завершити")
         btn_complete.setStyleSheet("""
             QPushButton { 
@@ -227,17 +248,13 @@ class QuestCard(QFrame):
 
         if self.goal.status == GoalStatus.COMPLETED:
             btn_complete.setVisible(False)
-            btn_edit.setVisible(False)
 
         btn_layout.addWidget(btn_subgoals)
-        btn_layout.addWidget(btn_edit)
         btn_layout.addStretch()
         btn_layout.addWidget(btn_complete)
         layout.addLayout(btn_layout)
 
-    # --- METHODS ---
     def get_title_text(self):
-        """Повертає текст заголовка з іконкою статусу"""
         status_icon = "🔵"
         if self.goal.status == GoalStatus.COMPLETED:
             status_icon = "✅"
@@ -274,21 +291,17 @@ class QuestCard(QFrame):
             pass
 
     def toggle_subgoal(self, state, subgoal):
-        # 1. Зберігаємо стан підцілі
         subgoal.is_completed = (state == Qt.Checked)
         self.storage.save_subgoal(subgoal)
 
-        # 2. Перераховуємо прогрес
         all_subs = self.storage.get_subgoals(self.goal.id)
         total = len(all_subs)
         completed = sum(1 for s in all_subs if s.is_completed)
 
-        # 3. Оновлюємо прогрес-бар локально
         if hasattr(self, 'progress_bar'):
             self.progress_bar.setValue(completed)
             self.progress_bar.setFormat(f"%p% ({completed}/{total})")
 
-        # 4. Логіка зміни статусу цілі
         old_status = self.goal.status
         new_status = old_status
 
@@ -300,13 +313,9 @@ class QuestCard(QFrame):
             else:
                 new_status = GoalStatus.PLANNED
 
-        # 5. Якщо статус змінився - зберігаємо і оновлюємо ЛОКАЛЬНО
         if new_status != old_status:
             self.goal.status = new_status
             self.storage.save_goal(self.goal)
-
-            # ВАЖЛИВО: Оновлюємо лише іконку в заголовку, а НЕ весь список.
-            # Це запобігає згортанню списку підцілей.
             self.title_lbl.setText(self.get_title_text())
 
     def force_complete_goal(self):
@@ -329,7 +338,13 @@ class QuestCard(QFrame):
 
     def edit_goal(self):
         from .edit_goal_dialog import EditGoalDialog
-        dialog = EditGoalDialog(self.parent_tab.mw, self.goal, storage=self.storage)
+        # ВИПРАВЛЕНО: передача аргументів по іменах, щоб уникнути плутанини
+        dialog = EditGoalDialog(
+            self.parent_tab.mw,
+            user_id=self.goal.user_id,
+            storage=self.storage,
+            goal=self.goal
+        )
         if dialog.exec_():
             self.parent_tab.update_list()
 

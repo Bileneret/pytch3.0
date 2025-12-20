@@ -1,159 +1,145 @@
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QLineEdit, QTextEdit, QDateEdit,
-    QComboBox, QPushButton, QLabel, QHBoxLayout, QMessageBox
+    QDialog, QVBoxLayout, QLineEdit, QTextEdit,
+    QComboBox, QPushButton, QLabel, QHBoxLayout, QMessageBox, QDateEdit
 )
-from PyQt5.QtCore import QDate, Qt
-from datetime import datetime
+from PyQt5.QtCore import QDate
 from src.models import LearningGoal, GoalPriority, GoalStatus
-from .category_dialog import CategoryDialog
 
 
 class EditGoalDialog(QDialog):
-    def __init__(self, parent, goal=None, user_id=None, storage=None):
+    def __init__(self, parent, user_id=None, storage=None, goal=None):
         super().__init__(parent)
-        self.goal = goal
-        self.user_id = user_id if user_id else (goal.user_id if goal else None)
+        self.user_id = user_id
         self.storage = storage
-        self.setWindowTitle("Редагувати ціль" if goal else "Нова ціль")
-        self.resize(400, 550)  # Трохи збільшили висоту
-        self.init_ui()
+        self.goal = goal
+        self.setWindowTitle("Створення цілі" if not goal else "Редагування цілі")
+        self.resize(400, 450)
+        self.setup_ui()
 
-    def init_ui(self):
+    def setup_ui(self):
         self.setStyleSheet("""
             QDialog { background-color: #0b0f19; color: #e0e0e0; font-family: 'Segoe UI'; }
-            QLineEdit, QTextEdit, QComboBox, QDateEdit {
-                background-color: #111827; border: 1px solid #1e3a8a; border-radius: 4px;
-                padding: 8px; color: white; font-size: 14px;
+            QLineEdit, QTextEdit, QComboBox, QDateEdit { 
+                background-color: #111827; border: 1px solid #1e3a8a; border-radius: 4px; padding: 8px; color: white;
             }
-            QLabel { font-weight: bold; margin-top: 10px; }
-            QPushButton {
-                background-color: #2563eb; color: white; border: none;
-                border-radius: 6px; padding: 10px; font-weight: bold;
+            QLabel { font-weight: bold; margin-top: 5px; }
+            QPushButton { 
+                background-color: #2563eb; color: white; border: none; border-radius: 6px; padding: 10px; font-weight: bold;
             }
             QPushButton:hover { background-color: #1d4ed8; }
-            QPushButton#CatBtn { background-color: #1e3a8a; padding: 5px; }
         """)
 
         layout = QVBoxLayout(self)
 
-        # Title
-        layout.addWidget(QLabel("Назва:"))
-        self.title_input = QLineEdit()
-        if self.goal: self.title_input.setText(self.goal.title)
-        layout.addWidget(self.title_input)
+        layout.addWidget(QLabel("Заголовок:"))
+        self.title_inp = QLineEdit()
+        if self.goal: self.title_inp.setText(self.goal.title)
+        layout.addWidget(self.title_inp)
 
-        # Description
         layout.addWidget(QLabel("Опис:"))
-        self.desc_input = QTextEdit()
-        if self.goal: self.desc_input.setText(self.goal.description)
-        layout.addWidget(self.desc_input)
+        self.desc_inp = QTextEdit()
+        if self.goal: self.desc_inp.setText(self.goal.description)
+        layout.addWidget(self.desc_inp)
 
-        # Priority
-        layout.addWidget(QLabel("Пріоритет:"))
-        self.priority_combo = QComboBox()
+        # Рядок Пріоритет | Категорія
+        row1 = QHBoxLayout()
+
+        col_prio = QVBoxLayout()
+        col_prio.addWidget(QLabel("Пріоритет:"))
+        self.prio_combo = QComboBox()
         for p in GoalPriority:
-            self.priority_combo.addItem(p.value, p)
+            self.prio_combo.addItem(p.value, p)
         if self.goal:
-            idx = self.priority_combo.findData(self.goal.priority)
-            if idx >= 0: self.priority_combo.setCurrentIndex(idx)
-        layout.addWidget(self.priority_combo)
-
-        # Status (НОВЕ ПОЛЕ)
-        layout.addWidget(QLabel("Статус:"))
-        self.status_combo = QComboBox()
-        for s in GoalStatus:
-            self.status_combo.addItem(s.value, s)
-
-        # За замовчуванням PLANNED, якщо редагуємо - ставимо поточний
-        if self.goal:
-            idx = self.status_combo.findData(self.goal.status)
-            if idx >= 0: self.status_combo.setCurrentIndex(idx)
-        layout.addWidget(self.status_combo)
-
-        # Category
-        layout.addWidget(QLabel("Категорія:"))
-        cat_layout = QHBoxLayout()
-        self.category_combo = QComboBox()
-        self.load_categories()
-
-        add_cat_btn = QPushButton("+")
-        add_cat_btn.setObjectName("CatBtn")
-        add_cat_btn.setFixedSize(30, 35)
-        add_cat_btn.clicked.connect(self.open_category_manager)
-
-        cat_layout.addWidget(self.category_combo)
-        cat_layout.addWidget(add_cat_btn)
-        layout.addLayout(cat_layout)
-
-        # Deadline
-        layout.addWidget(QLabel("Дедлайн (опціонально):"))
-        self.deadline_edit = QDateEdit()
-        self.deadline_edit.setCalendarPopup(True)
-        if self.goal and self.goal.deadline:
-            try:
-                dt = datetime.strptime(self.goal.deadline, "%Y-%m-%d")
-                self.deadline_edit.setDate(dt.date())
-            except:
-                self.deadline_edit.setDate(QDate.currentDate())
+            idx = self.prio_combo.findData(self.goal.priority)
+            self.prio_combo.setCurrentIndex(idx)
         else:
-            self.deadline_edit.setDate(QDate.currentDate())
-        layout.addWidget(self.deadline_edit)
+            self.prio_combo.setCurrentIndex(1)  # Medium default
+        col_prio.addWidget(self.prio_combo)
 
-        # Save Button
+        col_cat = QVBoxLayout()
+        col_cat.addWidget(QLabel("Категорія:"))
+        self.cat_combo = QComboBox()
+        self.load_categories()
+        col_cat.addWidget(self.cat_combo)
+
+        row1.addLayout(col_prio)
+        row1.addLayout(col_cat)
+        layout.addLayout(row1)
+
+        # Рядок Дедлайн (Обов'язковий)
+        row2 = QHBoxLayout()
+
+        col_deadline = QVBoxLayout()
+        col_deadline.addWidget(QLabel("Дедлайн:"))  # Прибрали "(опціонально)"
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        if self.goal and self.goal.deadline:
+            self.date_edit.setDate(QDate.fromString(self.goal.deadline, "yyyy-MM-dd"))
+        else:
+            self.date_edit.setDate(QDate.currentDate().addDays(7))
+        col_deadline.addWidget(self.date_edit)
+
+        row2.addLayout(col_deadline)
+        layout.addLayout(row2)
+
+        # Посилання (НОВЕ)
+        layout.addWidget(QLabel("Посилання (опціонально):"))
+        self.link_inp = QLineEdit()
+        self.link_inp.setPlaceholderText("https://...")
+        if self.goal and self.goal.link:
+            self.link_inp.setText(self.goal.link)
+        layout.addWidget(self.link_inp)
+
+        # Статус прибрали (завжди PLANNED для нових, або старий для існуючих)
+
         save_btn = QPushButton("Зберегти")
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
 
     def load_categories(self):
-        current_data = self.category_combo.currentData()
-        self.category_combo.clear()
-        self.category_combo.addItem("Без категорії", None)
-
+        self.cat_combo.clear()
+        self.cat_combo.addItem("Без категорії", None)
         cats = self.storage.get_categories(self.user_id)
         for c in cats:
-            self.category_combo.addItem(c.name, c.id)
+            self.cat_combo.addItem(c.name, c.id)
 
         if self.goal and self.goal.category_id:
-            idx = self.category_combo.findData(self.goal.category_id)
-            if idx >= 0: self.category_combo.setCurrentIndex(idx)
-        elif current_data:
-            idx = self.category_combo.findData(current_data)
-            if idx >= 0: self.category_combo.setCurrentIndex(idx)
-
-    def open_category_manager(self):
-        dialog = CategoryDialog(self, self.user_id, self.storage)
-        dialog.exec_()
-        self.load_categories()
+            idx = self.cat_combo.findData(self.goal.category_id)
+            if idx >= 0: self.cat_combo.setCurrentIndex(idx)
 
     def save(self):
-        title = self.title_input.text().strip()
+        title = self.title_inp.text().strip()
         if not title:
-            QMessageBox.warning(self, "Помилка", "Назва не може бути пуста")
+            QMessageBox.warning(self, "Помилка", "Введіть заголовок")
             return
 
-        desc = self.desc_input.toPlainText()
-        priority = self.priority_combo.currentData()
-        status = self.status_combo.currentData()
-        category_id = self.category_combo.currentData()
-        deadline_str = self.deadline_edit.date().toString("yyyy-MM-dd")
+        prio = self.prio_combo.currentData()
+        cat_id = self.cat_combo.currentData()
+        deadline = self.date_edit.date().toString("yyyy-MM-dd")
+        link = self.link_inp.text().strip()
+
+        # Для нових цілей - PLANNED, для старих - залишаємо як є
+        status = self.goal.status if self.goal else GoalStatus.PLANNED
 
         if self.goal:
             self.goal.title = title
-            self.goal.description = desc
-            self.goal.priority = priority
-            self.goal.status = status  # Оновлюємо статус
-            self.goal.deadline = deadline_str
-            self.goal.category_id = category_id
+            self.goal.description = self.desc_inp.toPlainText()
+            self.goal.priority = prio
+            self.goal.category_id = cat_id
+            self.goal.deadline = deadline
+            self.goal.link = link
+            self.goal.status = status  # Статус не змінюємо тут
             self.storage.save_goal(self.goal)
         else:
             new_goal = LearningGoal(
                 title=title,
-                description=desc,
-                priority=priority,
-                status=status,  # Зберігаємо статус
-                deadline=deadline_str,
+                description=self.desc_inp.toPlainText(),
+                priority=prio,
                 user_id=self.user_id,
-                category_id=category_id
+                category_id=cat_id,
+                deadline=deadline,
+                link=link,
+                status=GoalStatus.PLANNED
             )
             self.storage.save_goal(new_goal)
 
