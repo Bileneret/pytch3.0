@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from .base_tab import BaseTab
 from ..edit_habit_dialog import EditHabitDialog
 from ..search_dialog import SearchDialog
+import sqlite3  # Додано для роботи з БД напряму (видалення)
 
 
 class HabitTab(BaseTab):
@@ -36,7 +37,7 @@ class HabitTab(BaseTab):
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(15)
 
-        # Sort Combo (Style like QuestTab)
+        # Sort Combo
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Сорт: Серія", "Сорт: Назва"])
         self.sort_combo.setFixedWidth(150)
@@ -78,15 +79,13 @@ class HabitTab(BaseTab):
         nav_layout.addWidget(btn_next)
 
         controls_layout.addWidget(nav_widget)
-        controls_layout.addStretch()  # Push everything to the left
+        controls_layout.addStretch()
 
         header_layout.addLayout(controls_layout)
 
-        # Додаємо хедер у головний лейаут (над скролом)
         self.layout.insertWidget(0, header_container)
 
         # === 2. CONTENT (Scrollable Table) ===
-        # Table Widget
         self.table = QTableWidget()
         self.table.setColumnCount(9)
 
@@ -114,6 +113,7 @@ class HabitTab(BaseTab):
             }
         """)
 
+        # Налаштування колонок
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         for i in range(1, 8):
             self.table.horizontalHeader().setSectionResizeMode(i, QHeaderView.Fixed)
@@ -122,6 +122,8 @@ class HabitTab(BaseTab):
         self.table.setColumnWidth(8, 80)
 
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -138,7 +140,7 @@ class HabitTab(BaseTab):
         hint.setAlignment(Qt.AlignCenter)
         self.list_layout.addWidget(hint)
 
-        # === 3. FOOTER (Fixed Bottom) ===
+        # === 3. FOOTER ===
         footer = QHBoxLayout()
         footer.setContentsMargins(10, 10, 10, 10)
 
@@ -156,17 +158,63 @@ class HabitTab(BaseTab):
         btn_search.setStyleSheet(btn_style)
         btn_search.clicked.connect(self.open_search)
 
+        # КНОПКА ВИДАЛЕННЯ (ЧЕРВОНА)
+        btn_delete = QPushButton("🗑 Видалити")
+        btn_delete.setStyleSheet("""
+            QPushButton { 
+                background-color: #7f1d1d; 
+                color: white; 
+                border: 2px solid #b91c1c; 
+                border-radius: 8px; 
+                padding: 10px 15px; 
+                font-weight: bold; 
+            } 
+            QPushButton:hover { 
+                background-color: #991b1b; 
+            }
+        """)
+        btn_delete.clicked.connect(self.delete_habit)
+
         footer.addWidget(btn_add)
         footer.addWidget(btn_refresh)
         footer.addWidget(btn_search)
+        footer.addWidget(btn_delete)  # Додаємо кнопку видалення
         footer.addStretch()
 
-        # Додаємо футер у головний лейаут (під скролом)
         self.layout.addLayout(footer)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        QTimer.singleShot(10, self.table.resizeRowsToContents)
+    def delete_habit(self):
+        """Видалення обраної звички з таблиці."""
+        current_row = self.table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self.mw, "Увага", "Оберіть звичку зі списку, натиснувши на неї.")
+            return
+
+        habit_item = self.table.item(current_row, 0)
+        if not habit_item:
+            return
+
+        habit = habit_item.data(Qt.UserRole)
+
+        reply = QMessageBox.question(
+            self.mw,
+            "Видалення",
+            f"Ви дійсно хочете видалити звичку '{habit.title}'?\nЦе видалить всю історію її виконання.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                conn = sqlite3.connect(self.mw.storage.db_path)
+                c = conn.cursor()
+                c.execute("DELETE FROM habits WHERE id = ?", (habit.id,))
+                conn.commit()
+                conn.close()
+
+                self.load_data()
+                QMessageBox.information(self.mw, "Успіх", "Звичку успішно видалено.")
+            except Exception as e:
+                QMessageBox.critical(self.mw, "Помилка", f"Не вдалося видалити звичку: {e}")
 
     def change_week(self, offset):
         self.monday = self.monday.addDays(offset * 7)
@@ -254,8 +302,6 @@ class HabitTab(BaseTab):
             streak_item.setTextAlignment(Qt.AlignCenter)
             streak_item.setForeground(QBrush(QColor("#facc15")))
             self.table.setItem(row_idx, 8, streak_item)
-
-        QTimer.singleShot(50, self.table.resizeRowsToContents)
 
     def on_cell_double_clicked(self, row, col):
         habit_item = self.table.item(row, 0)
