@@ -1,31 +1,55 @@
-import pytest
+import unittest
 from datetime import date, timedelta
+from src.logic.utils import ValidationUtils
 
 
-# Функції, які ми нібито тестуємо (можна уявити, що вони в src/logic/utils.py)
-def validate_password(password: str) -> bool:
-    return len(password) >= 6
+# Імітуємо функції валідації, які зазвичай знаходяться в UI класах,
+# але ми хочемо протестувати їх логіку окремо.
+
+def validate_password_logic(password: str) -> bool:
+    return len(password) >= 4
 
 
-def validate_deadline(deadline_str: str) -> bool:
-    # deadline_str format: "YYYY-MM-DD"
-    deadline = date.fromisoformat(deadline_str)
-    return deadline >= date.today()
+def validate_deadline_logic(deadline_str: str) -> bool:
+    try:
+        # Підтримка формату з часом або без
+        if len(deadline_str) > 10:
+            d = date.fromisoformat(deadline_str.split()[0])
+        else:
+            d = date.fromisoformat(deadline_str)
+        return d >= date.today()
+    except ValueError:
+        return False
 
 
-# --- ТЕСТИ ---
+class TestValidation(unittest.TestCase):
 
-def test_password_strength():
-    """Перевірка валідатора паролів."""
-    assert validate_password("123456") is True
-    assert validate_password("short") is False
-    assert validate_password("") is False
+    def test_utils_title_validation(self):
+        """Тест ValidationUtils.validate_title з src/logic/utils.py"""
+        self.assertTrue(ValidationUtils.validate_title("Valid Title"))
+        self.assertFalse(ValidationUtils.validate_title(""))
+        self.assertFalse(ValidationUtils.validate_title("   "))
+        self.assertFalse(ValidationUtils.validate_title(None))
+
+    def test_password_rules(self):
+        """Перевірка правил пароля (min 4 символи, як в AuthService)."""
+        self.assertTrue(validate_password_logic("1234"))
+        self.assertTrue(validate_password_logic("secure_pass"))
+        self.assertFalse(validate_password_logic("123"))
+        self.assertFalse(validate_password_logic(""))
+
+    def test_deadline_rules(self):
+        """Перевірка, що дедлайн не може бути в минулому."""
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+        self.assertFalse(validate_deadline_logic(yesterday))
+        self.assertTrue(validate_deadline_logic(tomorrow))
+
+        # Перевірка з часом
+        tomorrow_time = f"{tomorrow} 15:00"
+        self.assertTrue(validate_deadline_logic(tomorrow_time))
 
 
-def test_deadline_in_past():
-    """Перевірка, що не можна ставити дедлайн у минулому."""
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
-
-    assert validate_deadline(yesterday) is False
-    assert validate_deadline(tomorrow) is True
+if __name__ == '__main__':
+    unittest.main()

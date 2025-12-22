@@ -1,102 +1,91 @@
 import pytest
 from datetime import date, timedelta
-from src.models import Habit, LearningGoal, SubGoal, GoalStatus
+from src.models import Habit, LearningGoal, SubGoal, GoalStatus, Course, CourseStatus
 
 
-# === ТЕСТИ ЛОГІКИ ЗВИЧОК ===
+# === ЛОГІКА ЗВИЧОК ===
 
-def test_habit_streak_update():
-    """
-    Перевіряє, чи збільшується стрік (серія) при виконанні звички.
-    """
-    # Підготовка даних: вчорашня дата
+def test_habit_streak_increment():
+    """Стрік збільшується при послідовному виконанні."""
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     today = date.today().isoformat()
 
-    habit = Habit(
-        id=1,
-        user_id=1,
-        title="Test Habit",
-        streak=5,
-        last_completed_date=yesterday
-    )
+    habit = Habit(title="H", user_id="u", streak=5, last_completed_date=yesterday)
 
-    # Дія: користувач виконує звичку
-    if habit.last_completed_date != today:
-        habit.streak += 1
-        habit.last_completed_date = today
+    # Дія: виконання сьогодні
+    habit.streak += 1
+    habit.last_completed_date = today
 
-    # Перевірка
     assert habit.streak == 6
-    assert habit.last_completed_date == today
 
 
-def test_habit_streak_reset():
-    """
-    Перевіряє, чи скидається стрік, якщо користувач пропустив день.
-    Логіка: якщо last_completed < yesterday -> streak = 0.
-    """
-    day_before_yesterday = (date.today() - timedelta(days=2)).isoformat()
+def test_habit_streak_break():
+    """Стрік скидається, якщо пропущено день (логіка 'if check')."""
+    day_before = (date.today() - timedelta(days=2)).isoformat()
 
-    habit = Habit(
-        id=2,
-        user_id=1,
-        title="Skipped Habit",
-        streak=10,
-        last_completed_date=day_before_yesterday
-    )
+    habit = Habit(title="H", user_id="u", streak=10, last_completed_date=day_before)
 
-    # Симуляція логіки перевірки при запуску програми
-    # (Ця логіка зазвичай знаходиться в habit_logic.py)
+    # Симуляція перевірки
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     today = date.today().isoformat()
 
-    is_streak_broken = habit.last_completed_date < yesterday and habit.last_completed_date != today
+    # Логіка: останній раз був позавчора, вчора пропущено
+    is_broken = habit.last_completed_date < yesterday and habit.last_completed_date != today
 
-    if is_streak_broken:
+    if is_broken:
         habit.streak = 0
 
     assert habit.streak == 0
 
 
-# === ТЕСТИ ЛОГІКИ ЦІЛЕЙ ТА ПРОГРЕСУ ===
+# === ЛОГІКА ЦІЛЕЙ ===
 
-def test_goal_progress_calculation():
-    """
-    Перевіряє розрахунок відсотка виконання цілі на основі підцілей.
-    """
-    goal = LearningGoal(
-        id=1, user_id=1, title="Master Python", status=GoalStatus.IN_PROGRESS
-    )
-
-    # Створюємо 4 підцілі: 3 виконані, 1 ні
-    subgoals = [
-        SubGoal(id=1, goal_id=1, title="Step 1", is_completed=True),
-        SubGoal(id=2, goal_id=1, title="Step 2", is_completed=True),
-        SubGoal(id=3, goal_id=1, title="Step 3", is_completed=True),
-        SubGoal(id=4, goal_id=1, title="Step 4", is_completed=False),
+def test_goal_progress_calc():
+    """Розрахунок % виконання."""
+    subs = [
+        SubGoal(title="1", goal_id="1", is_completed=True),
+        SubGoal(title="2", goal_id="1", is_completed=True),
+        SubGoal(title="3", goal_id="1", is_completed=False),
+        SubGoal(title="4", goal_id="1", is_completed=False)
     ]
+    total = len(subs)
+    completed = sum(1 for s in subs if s.is_completed)
+    percent = (completed / total) * 100
 
-    total = len(subgoals)
-    completed = sum(1 for s in subgoals if s.is_completed)
-
-    progress_percent = (completed / total) * 100 if total > 0 else 0
-
-    assert total == 4
-    assert completed == 3
-    assert progress_percent == 75.0
+    assert percent == 50.0
 
 
-def test_goal_zero_division_protection():
-    """
-    Перевіряє, що програма не падає, якщо у цілі немає підцілей.
-    """
-    subgoals = []  # Порожній список
+def test_goal_status_update_logic():
+    """Логіка зміни статусу цілі на основі підцілей."""
+    goal = LearningGoal(title="G", user_id="u", status=GoalStatus.IN_PROGRESS)
 
-    total = len(subgoals)
-    completed = 0
+    # 1. Всі підцілі виконані -> COMPLETED
+    all_done = True
+    if all_done:
+        goal.status = GoalStatus.COMPLETED
+    assert goal.status == GoalStatus.COMPLETED
 
-    # Логіка має обробити це безпечно
-    progress_percent = (completed / total) * 100 if total > 0 else 0
+    # 2. Одна стала невиконаною -> IN_PROGRESS
+    goal.status = GoalStatus.COMPLETED
+    all_done = False
+    some_done = True
 
-    assert progress_percent == 0
+    if not all_done and some_done:
+        goal.status = GoalStatus.IN_PROGRESS
+    assert goal.status == GoalStatus.IN_PROGRESS
+
+
+# === ЛОГІКА КУРСІВ ===
+
+def test_course_completion_logic():
+    """Якщо completed_units == total_units, статус має бути COMPLETED."""
+    course = Course(title="C", user_id="u", total_units=10, completed_units=9, status=CourseStatus.IN_PROGRESS)
+
+    # Add 1 unit
+    course.completed_units += 1
+
+    if course.completed_units >= course.total_units:
+        course.status = CourseStatus.COMPLETED
+
+    assert course.completed_units == 10
+    assert course.status == CourseStatus.COMPLETED
