@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
-from src.models import User, LearningGoal, Habit, Course, GoalStatus, GoalPriority, CourseStatus, CourseType
+from src.models import User, LearningGoal, Habit, Course, SubGoal, GoalStatus, GoalPriority, CourseType
+
 
 class TestModels(unittest.TestCase):
     def test_user_creation(self):
@@ -17,6 +18,12 @@ class TestModels(unittest.TestCase):
         self.assertEqual(goal.priority, GoalPriority.MEDIUM)
         self.assertIsNone(goal.deadline)
 
+    def test_subgoal_defaults(self):
+        """Перевірка створення підцілі."""
+        sub = SubGoal(title="Install IDE", goal_id="g1")
+        self.assertFalse(sub.is_completed)
+        self.assertEqual(sub.goal_id, "g1")
+
     def test_habit_structure(self):
         """Перевірка структури звички."""
         habit = Habit(title="Gym", user_id="u1")
@@ -28,9 +35,11 @@ class TestModels(unittest.TestCase):
         course = Course(title="Math", user_id="u1", total_units=10)
         self.assertEqual(course.course_type, CourseType.COURSE)
         self.assertEqual(course.completed_units, 0)
+
         # Симулюємо прогрес
         course.completed_units = 5
         self.assertEqual(course.completed_units, 5)
+
 
 if __name__ == '__main__':
     unittest.main()
