@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 import uuid
 
-# --- ENUMS ---
+# Enums
 class GoalStatus(Enum):
     PLANNED = "Заплановано"
     IN_PROGRESS = "В процесі"
@@ -30,7 +30,7 @@ class CourseStatus(Enum):
     COMPLETED = "Завершено"
     DROPPED = "Закинув"
 
-# --- DATA CLASSES ---
+# Data classes
 
 @dataclass
 class User:
@@ -48,7 +48,6 @@ class Category:
     color: str = "#3b82f6"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
-# НОВИЙ КЛАС ДЛЯ ТЕМ
 @dataclass
 class Topic:
     name: str
@@ -95,7 +94,7 @@ class Course:
     completed_units: int = 0
     link: str = ""
     description: str = ""
-    # Зберігаємо ID теми
+    # Зберігаємо id теми
     topic_id: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))

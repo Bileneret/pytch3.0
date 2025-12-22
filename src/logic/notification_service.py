@@ -48,16 +48,16 @@ class NotificationService:
 
     def send_windows_notification(self, title):
         try:
-            # Встановлюємо кастомну іконку, якщо вона є (опціонально)
+            # Встановити кастомну іконку
             # icon_path = os.path.abspath("assets/icon.ico")
 
             notification.notify(
                 title="Learning Goal Manager",  # 1) Повна назва
                 message=f"Через 10 хвилин кінець дедлайну Вашої цілі: \"{title}\". Ви не забули про неї?",
-                # 2) Новий текст
+
                 app_name="Learning Goal Manager",
                 timeout=10
-                # Примітка: Plyer не підтримує додавання кнопок у повідомлення (Action Center).
+                # Примітка: plyer не підтримує додавання кнопок у повідомлення (action center).
                 # Для цього потрібна компіляція в .exe або використання winrt, що ускладнить скрипт.
             )
         except Exception as e:

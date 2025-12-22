@@ -32,7 +32,7 @@ class AppController:
 
         self.current_user_id = None
 
-        # --- АВТОЛОГІН ---
+        # Автологін
         saved_user_id = self.auth_service.load_session()
 
         if saved_user_id:

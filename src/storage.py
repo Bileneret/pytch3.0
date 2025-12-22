@@ -44,25 +44,25 @@ class StorageService:
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, streak INTEGER, last_completed_date TEXT
         )''')
 
-        # Habit Logs
+        # Habit logs
         c.execute('''CREATE TABLE IF NOT EXISTS habit_logs (
             habit_id TEXT, date TEXT,
             PRIMARY KEY (habit_id, date)
         )''')
 
-        # TOPICS
+        # Topics
         c.execute('''CREATE TABLE IF NOT EXISTS topics (
             id TEXT PRIMARY KEY, user_id TEXT, name TEXT
         )''')
 
-        # COURSES
+        # Courses
         c.execute('''CREATE TABLE IF NOT EXISTS courses (
             id TEXT PRIMARY KEY, user_id TEXT, title TEXT, type TEXT, 
             status TEXT, total_units INTEGER, completed_units INTEGER, 
             link TEXT, description TEXT, created_at TEXT, topic_id TEXT
         )''')
 
-        # MIGRATION: add topic_id if missing
+        # Migration: add topic_id if missing
         try:
             c.execute("ALTER TABLE courses ADD COLUMN topic_id TEXT")
         except sqlite3.OperationalError:
@@ -71,7 +71,7 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # --- IMPORT / EXPORT METHODS ---
+    # Import / export methods
 
     def export_user_data(self, user_id: str) -> dict:
         """Експортує всі дані користувача у словник."""
@@ -81,7 +81,7 @@ class StorageService:
 
         data = {"version": 1, "export_date": datetime.now().isoformat()}
 
-        # 1. User Info (Optional, mainly for stats)
+        # 1. User info (optional, mainly for stats)
         c.execute("SELECT * FROM users WHERE id=?", (user_id,))
         user_row = c.fetchone()
         if user_row:
@@ -95,7 +95,7 @@ class StorageService:
         c.execute("SELECT * FROM topics WHERE user_id=?", (user_id,))
         data["topics"] = [dict(r) for r in c.fetchall()]
 
-        # 4. Goals & Subgoals
+        # 4. Goals & subgoals
         c.execute("SELECT * FROM goals WHERE user_id=?", (user_id,))
         goals = [dict(r) for r in c.fetchall()]
         data["goals"] = goals
@@ -108,7 +108,7 @@ class StorageService:
         else:
             data["subgoals"] = []
 
-        # 5. Habits & Logs
+        # 5. Habits & logs
         c.execute("SELECT * FROM habits WHERE user_id=?", (user_id,))
         habits = [dict(r) for r in c.fetchall()]
         data["habits"] = habits
@@ -136,7 +136,7 @@ class StorageService:
         def upsert(table, rows):
             if not rows: return
 
-            # --- ВАЖЛИВА ЗМІНА: ПЕРЕПИСУЄМО user_id ---
+            # Важлива зміна: переписуємо user_id
             processed_rows = []
             for row in rows:
                 new_row = row.copy()
@@ -144,7 +144,6 @@ class StorageService:
                 if 'user_id' in new_row:
                     new_row['user_id'] = user_id
                 processed_rows.append(new_row)
-            # -------------------------------------------
 
             keys = processed_rows[0].keys()
             columns = ', '.join(keys)
@@ -155,28 +154,28 @@ class StorageService:
                 c.execute(sql, list(row.values()))
 
         try:
-            # Import Categories
+            # Import categories
             upsert("categories", data.get("categories", []))
 
-            # Import Topics
+            # Import topics
             upsert("topics", data.get("topics", []))
 
-            # Import Goals
+            # Import goals
             upsert("goals", data.get("goals", []))
 
-            # Import Subgoals (тут user_id немає, прив'язка йде через goal_id, який ми зберегли)
+            # Import subgoals (тут user_id немає, прив'язка йде через goal_id, який ми зберегли)
             upsert("subgoals", data.get("subgoals", []))
 
-            # Import Habits
+            # Import habits
             upsert("habits", data.get("habits", []))
 
-            # Import Habit Logs
+            # Import habit logs
             upsert("habit_logs", data.get("habit_logs", []))
 
-            # Import Courses
+            # Import courses
             upsert("courses", data.get("courses", []))
 
-            # Update User Stats if present
+            # Update user stats if present
             if "user" in data and data["user"]:
                 u = data["user"]
                 if "total_completed_goals" in u:
@@ -190,7 +189,7 @@ class StorageService:
         finally:
             conn.close()
 
-    # --- TOPICS ---
+    # Topics
     def get_topics(self, user_id: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -227,7 +226,7 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # --- COURSES ---
+    # Courses
     def save_course(self, course: Course):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -273,7 +272,7 @@ class StorageService:
         conn.commit()
         conn.close()
 
-    # --- STANDARD METHODS (USER, GOALS, HABITS) ---
+    # Standard methods (user, goals, habits)
     def get_user_by_username(self, username: str):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()

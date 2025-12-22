@@ -31,15 +31,13 @@ class AuthService:
             return False, "Користувач вже існує"
 
         # Створення користувача
-        # (Передбачається, що User генерує ID автоматично, наприклад, через uuid в моделі)
+        # (user генерує id автоматично, через uuid в моделі)
         user = User(username=username, password_hash=self._hash_password(password))
         self.storage.create_user(user)
 
-        # --- ВИПРАВЛЕННЯ: АВТОМАТИЧНИЙ ВХІД ---
         # Одразу зберігаємо користувача як поточного і записуємо сесію
         self.current_user = user
         self.save_session(user.id)
-        # --------------------------------------
 
         return True, "Акаунт створено успішно"
 
